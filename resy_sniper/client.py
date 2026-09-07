@@ -19,8 +19,8 @@ import requests
 
 DEFAULT_BASE_URL = "https://api.resy.com"
 USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
 )
 
 # Substrings that indicate a bot challenge / WAF page instead of an API response.
