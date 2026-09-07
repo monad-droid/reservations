@@ -1,0 +1,30 @@
+# systemd unit template. The instance name is the mode:
+#   sudo systemctl start resy-sniper@discover
+#   sudo systemctl start resy-sniper@snipe
+# Install to /etc/systemd/system/resy-sniper@.service and adjust the paths/user below.
+# Restart=no on purpose: a snipe that already booked must never be re-run automatically.
+
+[Unit]
+Description=Resy release-drop sniper (%i mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=resy
+Group=resy
+WorkingDirectory=/opt/resy-sniper
+Environment=PYTHONUNBUFFERED=1
+# Add --dry-run here (or via `systemctl edit resy-sniper@snipe`) to rehearse the snipe path:
+#   Environment=SNIPER_ARGS=--dry-run
+Environment=SNIPER_ARGS=
+ExecStart=/opt/resy-sniper/.venv/bin/python -m resy_sniper $SNIPER_ARGS %i
+Restart=no
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/resy-sniper
+
+[Install]
+WantedBy=multi-user.target

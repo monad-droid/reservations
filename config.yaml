@@ -1,0 +1,55 @@
+# Resy release-drop sniper configuration. Credentials live in .env, not here.
+
+venue:
+  url_slug: gin-gins            # from https://resy.com/cities/<location>/venues/<url_slug>
+  location: grand-rapids-mi
+  venue_id: null                # optional. Leave null to resolve from the slug at startup
+                                # (run `python -m resy_sniper venue` to print it), or paste the number here.
+
+party_size: 2
+
+target:
+  mode: date                    # "date" -> use `date` below; "next_friday" -> earliest Friday that is not yet bookable,
+                                #   computed from window_days in the state file / CLI override.
+  date: "2026-10-09"
+
+timezone: America/Detroit       # venue-local timezone. Drop times and "today" are evaluated in this zone.
+
+# Reservation start times, in priority order (24h HH:MM, venue local). Only these times are ever booked.
+time_preferences:
+  - "19:00"
+  - "19:15"
+  - "18:45"
+  - "19:30"
+  - "18:30"
+  - "19:45"
+  - "20:00"
+
+# Table types (the `config.type` string Resy returns, e.g. "Dining Room", "Bar", "Patio"), in priority order.
+# Matching is case-insensitive. For a given time, listed types are tried first in this order, then any other
+# type at that time unless `table_types_strict` is true.
+table_types:
+  - "Dining Room"
+table_types_strict: false
+
+discover:
+  poll_interval_s: 60           # how often to poll /4/find for the not-yet-bookable date
+  max_hours: 48                 # give up after this long
+  required_drops: 2             # stop after this many observed daily drops
+
+snipe:
+  lead_seconds: 120             # start polling this long before the computed release moment
+  poll_interval_s: 1.0          # seconds between /4/find polls once live (floor 0.5)
+  max_minutes: 10               # stop polling this long after the release moment
+
+notify:
+  provider: telegram            # "telegram", "ntfy" or "none"
+  telegram:
+    chat_id: null               # your chat id (integer). Token goes in .env as TELEGRAM_BOT_TOKEN. See README "Telegram".
+                                # With telegram, discover/snipe also answer /status, /stop and /help from this chat.
+  ntfy:
+    server: https://ntfy.sh
+    topic: ""                   # e.g. "resy-sniper-<random>". Subscribe to it in the ntfy app.
+
+state_file: state.json
+log_file: logs/resy-sniper.log
