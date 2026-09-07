@@ -86,6 +86,12 @@ def load_credentials(env_path: Optional[str]) -> Credentials:
     if not api_key:
         raise ConfigError("RESY_API_KEY is not set (put it in .env; see README)")
     auth_token = (os.environ.get("RESY_AUTH_TOKEN") or "").strip() or None
+    for name, val in (("RESY_API_KEY", api_key), ("RESY_AUTH_TOKEN", auth_token or "")):
+        if not val.isascii() or any(c.isspace() for c in val):
+            raise ConfigError(
+                f"{name} in .env contains non-ASCII or whitespace characters (a masked copy like 'eyJ0eXAi•••' "
+                "or a line break?). Re-copy the value directly from the browser's DevTools headers panel."
+            )
     pm_raw = (os.environ.get("RESY_PAYMENT_METHOD_ID") or "").strip()
     payment_method_id: Optional[int] = None
     if pm_raw:
