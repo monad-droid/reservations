@@ -25,8 +25,9 @@ API flow (same as the public open-source bots
 [Alkaar/resy-booking-bot](https://github.com/Alkaar/resy-booking-bot) and
 [jeffknaide/resy-bot](https://github.com/jeffknaide/resy-bot)):
 
-1. `GET /4/find?lat=0&long=0&day=YYYY-MM-DD&party_size=N&venue_id=ID` → available slots for a day
-2. `GET /3/details?config_id=<slot config.token>&day=&party_size=` → `book_token.value`
+1. `POST /4/find` JSON `{"day":"YYYY-MM-DD","lat":0,"long":0,"party_size":N,"venue_id":ID}` → available slots for a day
+   (the reference bots use a GET with the same names as query params; the current resy.com client POSTs JSON)
+2. `POST /3/details` JSON `{"commit":1,"config_id":"<slot config.token>","day":"…","party_size":N}` → `book_token.value`
 3. `POST /3/book` (form-encoded) `book_token=…&struct_payment_method={"id":PAYMENT_METHOD_ID}&source_id=resy.com-venue-details` → confirmation
 
 Plus, for venue lookup and window discovery: `GET /3/venue?url_slug=&location=`,

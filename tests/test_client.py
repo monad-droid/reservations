@@ -38,15 +38,16 @@ class ClientTests(unittest.TestCase):
         self.req.return_value = _resp(200, '{"results":{"venues":[{"slots":[]}]}}')
         self.client.find(123, date(2026, 10, 2), 2)
         _, kwargs = self.req.call_args
-        self.assertEqual(kwargs["params"], {"lat": 0, "long": 0, "day": "2026-10-02", "party_size": 2, "venue_id": 123})
-        self.assertEqual(self.req.call_args[0], ("GET", "https://api.resy.com/4/find"))
+        self.assertEqual(kwargs["json"], {"day": "2026-10-02", "lat": 0, "long": 0, "party_size": 2, "venue_id": 123})
+        self.assertEqual(kwargs["headers"]["Content-Type"], "application/json")
+        self.assertEqual(self.req.call_args[0], ("POST", "https://api.resy.com/4/find"))
 
     def test_details_and_book_shapes(self):
         self.req.return_value = _resp(200, '{"book_token":{"value":"BT1","date_expires":"x"},"user":{"payment_methods":[{"id":42}]}}')
         tok = self.client.details("rgs://resy/1/2/3", date(2026, 10, 9), 2)
         self.assertEqual(tok, "BT1")
-        self.assertEqual(self.req.call_args[0], ("GET", "https://api.resy.com/3/details"))
-        self.assertEqual(self.req.call_args[1]["params"], {"config_id": "rgs://resy/1/2/3", "day": "2026-10-09", "party_size": 2})
+        self.assertEqual(self.req.call_args[0], ("POST", "https://api.resy.com/3/details"))
+        self.assertEqual(self.req.call_args[1]["json"], {"commit": 1, "config_id": "rgs://resy/1/2/3", "day": "2026-10-09", "party_size": 2})
 
         self.req.return_value = _resp(201, '{"resy_token":"RT","reservation_id":9}')
         out = self.client.book("BT1", 42)

@@ -235,22 +235,28 @@ class ResyClient:
         return sched if isinstance(sched, list) else []
 
     def find(self, venue_id: int, day: date, party_size: int) -> dict:
-        """GET /4/find?lat=0&long=0&day=YYYY-MM-DD&party_size=&venue_id= -> raw payload."""
+        """POST /4/find with JSON {"day","lat":0,"long":0,"party_size","venue_id"} -> raw payload.
+
+        The resy.com web client sends this as a JSON POST (observed in DevTools, Sept 2026; same
+        shape as daylamtayari/cierge). The older GET form from Alkaar/knaide is not used.
+        """
         return self._request(
-            "GET",
+            "POST",
             "/4/find",
-            params={"lat": 0, "long": 0, "day": day.isoformat(), "party_size": party_size, "venue_id": venue_id},
+            json_body={"day": day.isoformat(), "lat": 0, "long": 0, "party_size": party_size, "venue_id": venue_id},
+            headers={"Content-Type": "application/json"},
             summary=f"day={day.isoformat()} party={party_size}",
             timeout=5.0,
         )
 
     def details(self, config_id: str, day: date, party_size: int) -> str:
-        """GET /3/details?config_id=&day=&party_size= -> book_token.value"""
+        """POST /3/details with JSON {"commit":1,"config_id","day","party_size"} -> book_token.value"""
         try:
             payload = self._request(
-                "GET",
+                "POST",
                 "/3/details",
-                params={"config_id": config_id, "day": day.isoformat(), "party_size": party_size},
+                json_body={"commit": 1, "config_id": config_id, "day": day.isoformat(), "party_size": party_size},
+                headers={"Content-Type": "application/json"},
                 summary=f"config_id={config_id[:24]}… day={day.isoformat()}",
                 timeout=5.0,
             )

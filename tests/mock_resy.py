@@ -137,6 +137,10 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(n).decode()
         if not self._auth_ok() and not u.path.startswith("/bot"):
             return self._send(401, {"message": "unauthorized"})
+        if u.path in ("/4/find", "/3/details"):
+            body = json.loads(raw or "{}")
+            self.path = u.path + "?" + "&".join(f"{k}={v}" for k, v in body.items())
+            return self.do_GET()
         if u.path == "/3/book":
             if self.headers.get("Content-Type", "").split(";")[0] != "application/x-www-form-urlencoded":
                 return self._send(400, {"message": "expected form body"})
