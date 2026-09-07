@@ -104,10 +104,9 @@ def run_snipe(
     status = status or Status()
     if not cfg.creds.auth_token:
         raise ResyError("RESY_AUTH_TOKEN is not set; /3/details and /3/book need it")
-    if not dry_run and cfg.creds.payment_method_id is None:
-        raise ResyError("RESY_PAYMENT_METHOD_ID is not set; required to POST /3/book (or use --dry-run)")
-    if dry_run and cfg.creds.payment_method_id is None:
-        log.warning("dry run without RESY_PAYMENT_METHOD_ID; a real run would refuse to start")
+    if cfg.creds.payment_method_id is None:
+        log.warning("RESY_PAYMENT_METHOD_ID is not set; /3/book will be sent without a payment method. "
+                    "Works only if the venue does not require a card on file (Resy answers 402 otherwise).")
 
     params = load_params(cfg, window_override, drop_override, log)
     today = datetime.now(cfg.tz).date()
@@ -230,7 +229,7 @@ def _try_book(client: ResyClient, cfg: Config, venue_id: int, target: date, slot
     if dry_run:
         form_preview = {
             "book_token": token[:12] + "…",
-            "struct_payment_method": '{"id":%s}' % cfg.creds.payment_method_id,
+            "struct_payment_method": ('{"id":%s}' % cfg.creds.payment_method_id) if cfg.creds.payment_method_id is not None else "(omitted)",
             "source_id": "resy.com-venue-details",
         }
         log.info("DRY RUN: would POST /3/book %s for %s %s party=%d", form_preview, target, slot.label(), cfg.party_size)

@@ -134,6 +134,15 @@ If nothing was booked in the window it notifies you with what it saw and exits 1
 Exit codes: 0 booked / dry run OK · 1 nothing booked / discover timed out · 2 auth (401/419) ·
 3 CAPTCHA/challenge/non-JSON response · 4 config error · 5 other error.
 
+### One command: auto
+
+```bash
+.venv/bin/python -m resy_sniper auto            # discover, then snipe, in one process
+```
+
+Runs `discover` unless `state.json` is already confirmed, then goes straight into `snipe` for the
+configured target. Accepts `--dry-run` and `--target-date` like `snipe`.
+
 ### Under systemd
 
 `resy-sniper@.service` is a template unit; the instance name is the mode.

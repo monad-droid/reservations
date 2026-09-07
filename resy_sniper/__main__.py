@@ -15,6 +15,7 @@ from .logsetup import setup_logging
 from .notify import Notifier
 from .slots import parse_find, rank_slots, summarize
 from .snipe import run_snipe
+from .state import read_state
 from .status import Status
 from .telegram import TelegramBot
 from .venue import resolve_venue
@@ -42,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("discover", help="observe the release window and drop time; writes the state file")
 
+    a = sub.add_parser("auto", help="discover (unless the state file is already confirmed), then snipe")
+    a.add_argument("--target-date", default=None, help="override target date (YYYY-MM-DD)")
+    a.add_argument("--dry-run", action="store_true", dest="dry_run_sub", help="same as global --dry-run")
+
     s = sub.add_parser("snipe", help="wait for the release moment and book")
     s.add_argument("--window-days", type=int, default=None, help="override window_days from the state file")
     s.add_argument("--drop-time", default=None, help="override drop time (HH:MM or HH:MM:SS, venue-local)")
@@ -67,7 +72,7 @@ def main(argv=None) -> int:
     telegram = None
     if cfg.notify_provider == "telegram" and cfg.creds.telegram_bot_token and cfg.telegram_chat_id is not None:
         telegram = TelegramBot(cfg.creds.telegram_bot_token, cfg.telegram_chat_id, log)
-        if args.mode in ("discover", "snipe"):
+        if args.mode in ("discover", "snipe", "auto"):
             telegram.start_listener(status.text, status.request_stop)
     notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram)
     client = ResyClient(cfg.creds.api_key, cfg.creds.auth_token, log, mode=args.mode)
@@ -97,6 +102,18 @@ def main(argv=None) -> int:
 
         if args.mode == "discover":
             return run_discover(cfg, client, notifier, log, status)
+
+        if args.mode == "auto":
+            state = read_state(cfg.state_file)
+            if state and state.get("confirmed") and "drop_time_local" in state:
+                log.info("state file %s is already confirmed (drop %s, window %s); skipping discover", cfg.state_file, state.get("drop_time_local"), state.get("window_days"))
+            else:
+                rc = run_discover(cfg, client, notifier, log, status)
+                if rc != 0:
+                    log.error("discover did not finish; not starting snipe")
+                    return rc
+                status.set(mode="auto", phase="discover done; starting snipe")
+            return run_snipe(cfg, client, notifier, log, target_override=args.target_date, dry_run=dry_run, status=status)
 
         if args.mode == "snipe":
             if args.target_date:
