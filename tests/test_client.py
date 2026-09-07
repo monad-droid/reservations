@@ -67,6 +67,10 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(ChallengeError):
             self.client.find(1, date(2026, 10, 2), 2)
 
+    def test_json_containing_captcha_word_is_fine(self):
+        self.req.return_value = _resp(200, '{"feature_recaptcha": false, "country_codes": [{"captcha": true}], "results": {"venues": [{"slots": []}]}}')
+        self.assertIn("results", self.client.find(1, date(2026, 10, 2), 2))
+
     def test_non_json(self):
         self.req.return_value = _resp(200, "definitely not json")
         with self.assertRaises(ChallengeError):

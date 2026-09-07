@@ -171,9 +171,12 @@ class ResyClient:
                     text,
                 )
 
+            # A real API answer is JSON. Only look for challenge markers in non-JSON bodies: Resy's own
+            # JSON legitimately contains strings like "feature_recaptcha" and per-country "captcha" flags.
             lowered = text[:4000].lower()
             looks_html = "text/html" in ctype or lowered.lstrip().startswith("<")
-            if looks_html or any(m in lowered for m in CHALLENGE_MARKERS):
+            is_json = "json" in ctype
+            if looks_html or (not is_json and any(m in lowered for m in CHALLENGE_MARKERS)):
                 self.log.error(
                     "[%s] challenge/unexpected non-API response from %s (status %s, content-type %r). RAW BODY FOLLOWS:\n%s",
                     self.mode, path, resp.status_code, ctype, text[:RAW_LOG_LIMIT],
