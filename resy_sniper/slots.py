@@ -87,26 +87,48 @@ def _type_rank(table_type: str, prefs: list[str]) -> Optional[int]:
     return None
 
 
-def rank_slots(slots: list[Slot], time_prefs: list[str], table_prefs: list[str], strict: bool) -> list[Slot]:
-    """Order candidates: by time priority, then by table-type priority within that time.
+def _minutes(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
 
-    Slots whose start time is not in `time_prefs` are excluded. If `strict`, slots whose
-    type matches none of `table_prefs` are excluded; otherwise they come after matching ones.
+
+def _time_rank(hhmm: str, time_prefs: list[str]) -> Optional[tuple[int, int]]:
+    """(index of the first matching preference, distance from that preference's centre in minutes).
+
+    A preference is 'HH:MM' (exact) or 'HH:MM-HH:MM' (inclusive range; closest to the middle wins).
     """
-    ranked: list[tuple[int, int, int, Slot]] = []
+    t = _minutes(hhmm)
+    for i, pref in enumerate(time_prefs):
+        if "-" in pref:
+            lo, hi = pref.split("-", 1)
+            lo_m, hi_m = _minutes(lo), _minutes(hi)
+            if lo_m <= t <= hi_m:
+                return i, abs(t - (lo_m + hi_m) // 2)
+        elif pref == hhmm:
+            return i, 0
+    return None
+
+
+def rank_slots(slots: list[Slot], time_prefs: list[str], table_prefs: list[str], strict: bool) -> list[Slot]:
+    """Order candidates: by time preference (exact times or ranges, in list order), then by table type.
+
+    Slots whose start time matches no preference are excluded. Within a range, times closest to the
+    middle of the range come first. If `strict`, slots whose type matches none of `table_prefs` are
+    excluded; otherwise they come after matching ones.
+    """
+    ranked: list[tuple[int, int, int, int, Slot]] = []
     for idx, s in enumerate(slots):
-        try:
-            t_rank = time_prefs.index(s.hhmm)
-        except ValueError:
+        tr = _time_rank(s.hhmm, time_prefs)
+        if tr is None:
             continue
         ty_rank = _type_rank(s.table_type, table_prefs)
         if ty_rank is None:
             if strict:
                 continue
             ty_rank = len(table_prefs)  # after all preferred types
-        ranked.append((t_rank, ty_rank, idx, s))
-    ranked.sort(key=lambda r: (r[0], r[1], r[2]))
-    return [r[3] for r in ranked]
+        ranked.append((tr[0], tr[1], ty_rank, idx, s))
+    ranked.sort(key=lambda r: r[:4])
+    return [r[4] for r in ranked]
 
 
 def summarize(slots: list[Slot], limit: int = 40) -> str:

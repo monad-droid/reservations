@@ -15,7 +15,8 @@ target:
 
 timezone: America/Detroit       # venue-local timezone. Drop times and "today" are evaluated in this zone.
 
-# Reservation start times, in priority order (24h HH:MM, venue local). Only these times are ever booked.
+# Reservation start times, in priority order (24h, venue local). Entries are exact times "HH:MM" or ranges
+# "HH:MM-HH:MM" (inclusive; within a range the time closest to its middle is preferred). Only matching times are booked.
 time_preferences:
   - "19:00"
   - "19:15"

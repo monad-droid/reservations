@@ -55,6 +55,15 @@ class RankTests(unittest.TestCase):
         ranked = rank_slots(parse_find(FIND_FIXTURE), ["19:00"], [], strict=False)
         self.assertEqual([s.label() for s in ranked], ["19:00 Bar", "19:00 Dining Room"])  # original order kept
 
+    def test_ranges(self):
+        slots = parse_find(FIND_FIXTURE)  # 17:30, 19:00 x2, 19:15, 20:00
+        # exact first, then a range: 19:30 absent -> range 18:30-20:00, middle 19:15
+        ranked = rank_slots(slots, ["19:30", "18:30-20:00"], ["Dining Room"], strict=False)
+        self.assertEqual([s.label() for s in ranked], ["19:15 Patio", "19:00 Dining Room", "19:00 Bar", "20:00 Dining Room"])
+        # range only, middle 18:45 -> 19:00 (15 min) before 17:30 (75) and 20:00 (75)
+        ranked = rank_slots(slots, ["17:30-20:00"], [], strict=False)
+        self.assertEqual([s.hhmm for s in ranked], ["19:00", "19:00", "19:15", "17:30", "20:00"])
+
     def test_unlisted_times_excluded(self):
         ranked = rank_slots(parse_find(FIND_FIXTURE), ["17:30"], ["Dining Room"], strict=False)
         self.assertEqual([s.label() for s in ranked], ["17:30 Dining Room"])

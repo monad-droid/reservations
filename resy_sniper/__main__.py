@@ -61,19 +61,20 @@ def _make_target_handler(config_path: str, log: logging.Logger):
     def handle(arg: str) -> str:
         parts = arg.split()
         if not parts:
-            return "Usage: /target YYYY-MM-DD [HH:MM]  e.g. /target 2026-10-09 19:30"
+            return "Usage: /target YYYY-MM-DD [times...]  e.g. /target 2026-10-09 19:30 18:30-20:00  (exact times and ranges, in priority order)"
         try:
             target = date.fromisoformat(parts[0])
         except ValueError:
             return f"Bad date {parts[0]!r}; use YYYY-MM-DD"
         if target <= date.today():
             return f"{target} is not in the future."
-        hhmm = parts[1] if len(parts) > 1 else None
+        specs = parts[1:] or None
         try:
-            set_target_in_file(config_path, target, hhmm)
+            set_target_in_file(config_path, target, specs)
         except ConfigError as e:
             return f"Could not update config: {e}"
-        log.info("telegram /target: config updated to %s %s; restarting process", target, hhmm or "(time unchanged)")
+        hhmm = " then ".join(specs) if specs else None
+        log.info("telegram /target: config updated to %s %s; restarting process", target, hhmm or "(times unchanged)")
         # Restart with the same command line so every mode re-reads the config. execv from a thread is fine on Linux.
         threading.Timer(1.5, _reexec).start()
         return f"Target set to {target} ({target.strftime('%A')}){' at ' + hhmm if hhmm else ''}. Restarting now; send /status in ~20s."

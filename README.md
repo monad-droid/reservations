@@ -173,7 +173,7 @@ is running you can talk to it from the same chat:
 | command | reply |
 | --- | --- |
 | `/status` | mode, venue, target, computed release moment, polls so far, last poll result, drops observed |
-| `/target YYYY-MM-DD [HH:MM]` | sets the reservation date (and, optionally, the single preferred time) in `config.yaml` and restarts the bot with it |
+| `/target YYYY-MM-DD [times...]` | sets the reservation date and, optionally, the times to go after (exact `19:30` or a range `18:30-20:00`, in priority order) in `config.yaml`, then restarts the bot with it |
 | `/stop` | stops the current run cleanly (exit 1, nothing booked) |
 | `/help` | the list above |
 

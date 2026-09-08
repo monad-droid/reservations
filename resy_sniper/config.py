@@ -18,6 +18,17 @@ class ConfigError(Exception):
 
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+_TIME_SPEC_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)(-([01]\d|2[0-3]):([0-5]\d))?$")
+
+
+def valid_time_spec(s: str) -> bool:
+    """'HH:MM' or a range 'HH:MM-HH:MM' (start <= end)."""
+    m = _TIME_SPEC_RE.match(s)
+    if not m:
+        return False
+    if m.group(3):
+        return (int(m.group(1)), int(m.group(2))) <= (int(m.group(4)), int(m.group(5)))
+    return True
 
 
 @dataclass
@@ -149,8 +160,8 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
     prefs: list[str] = []
     for p in prefs_raw:
         s = str(p).strip()
-        if not _TIME_RE.match(s):
-            raise ConfigError(f"time_preferences entry '{p}' is not HH:MM (24h)")
+        if not valid_time_spec(s):
+            raise ConfigError(f"time_preferences entry '{p}' is not HH:MM or HH:MM-HH:MM (24h)")
         if s not in prefs:
             prefs.append(s)
 
@@ -220,18 +231,23 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
     return cfg
 
 
-def set_target_in_file(path: str, target: date, time_hhmm: Optional[str]) -> None:
-    """Rewrite target.mode/target.date (and time_preferences if given) in config.yaml, keeping comments."""
+def set_target_in_file(path: str, target: date, time_specs: Optional[list[str]]) -> None:
+    """Rewrite target.mode/target.date (and time_preferences if given) in config.yaml, keeping comments.
+
+    time_specs: priority-ordered list of 'HH:MM' or 'HH:MM-HH:MM'.
+    """
     with open(path, "r", encoding="utf-8") as f:
         s = f.read()
     s, n = re.subn(r'(^\s*date:\s*)"?\d{4}-\d\d-\d\d"?', lambda m: f'{m.group(1)}"{target.isoformat()}"', s, count=1, flags=re.M)
     if n == 0:
         raise ConfigError("could not find target.date in config.yaml")
     s = re.sub(r"(^\s*mode:\s*)\w+", lambda m: f"{m.group(1)}date", s, count=1, flags=re.M)
-    if time_hhmm:
-        if not _TIME_RE.match(time_hhmm):
-            raise ConfigError(f"time must be HH:MM, got {time_hhmm!r}")
-        s, n = re.subn(r'(^time_preferences:\n)(?:\s*-\s*"?\d\d:\d\d"?\n)+', lambda m: f'{m.group(1)}  - "{time_hhmm}"\n', s, count=1, flags=re.M)
+    if time_specs:
+        for t in time_specs:
+            if not valid_time_spec(t):
+                raise ConfigError(f"time must be HH:MM or HH:MM-HH:MM, got {t!r}")
+        block = "".join(f'  - "{t}"\n' for t in time_specs)
+        s, n = re.subn(r'(^time_preferences:\n)(?:\s*-\s*"?\d\d:\d\d(?:-\d\d:\d\d)?"?\n)+', lambda m: f"{m.group(1)}{block}", s, count=1, flags=re.M)
         if n == 0:
             raise ConfigError("could not find time_preferences in config.yaml")
     tmp = path + ".tmp"
