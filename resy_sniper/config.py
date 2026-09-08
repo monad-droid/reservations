@@ -46,6 +46,7 @@ class Config:
     snipe_lead_seconds: float
     snipe_poll_interval_s: float
     snipe_max_minutes: float
+    snipe_watch_interval_min: float  # after the release window: re-check every N minutes until the target day (0 = off)
     notify_provider: str
     ntfy_server: str
     ntfy_topic: str
@@ -203,6 +204,7 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
         snipe_lead_seconds=float(_num("snipe.lead_seconds", 120, lo=0)),
         snipe_poll_interval_s=snipe_poll,
         snipe_max_minutes=float(_num("snipe.max_minutes", 10, lo=0.1)),
+        snipe_watch_interval_min=float(_num("snipe.watch_interval_min", 10, lo=0)),
         notify_provider=provider,
         ntfy_server=str(_get(raw, "notify.ntfy.server", "https://ntfy.sh")).rstrip("/"),
         ntfy_topic=str(_get(raw, "notify.ntfy.topic", "") or "").strip(),

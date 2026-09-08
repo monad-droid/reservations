@@ -211,7 +211,50 @@ def run_snipe(
         f"Attempts: {attempts or 'none'}"
     )
     log.error(msg)
-    notifier.send("Resy snipe: missed", msg, priority="high")
+    if cfg.snipe_watch_interval_min <= 0:
+        notifier.send("Resy snipe: missed", msg, priority="high")
+        return 1
+    notifier.send(
+        "Resy snipe: missed the release",
+        msg + f"\nNow checking {target} every {cfg.snipe_watch_interval_min:g} min for a cancellation until the day itself.",
+        priority="high",
+    )
+    return _watch_for_cancellation(cfg, client, notifier, log, status, venue, target, dry_run)
+
+
+def _watch_for_cancellation(cfg, client, notifier, log, status, venue, target: date, dry_run: bool) -> int:
+    """Slow polling of the target date until the end of the day before it. Books the first matching slot."""
+    interval = cfg.snipe_watch_interval_min * 60
+    end = datetime.combine(target, dtime(23, 59), tzinfo=cfg.tz)
+    status.set(phase=f"watching for a cancellation every {cfg.snipe_watch_interval_min:g} min until {target}")
+    log.info("watch: checking %s every %g min until %s", target, cfg.snipe_watch_interval_min, end.isoformat(timespec="minutes"))
+    checks = 0
+    while not status.stopping and datetime.now(cfg.tz) < end:
+        status.stop_event.wait(interval)
+        if status.stopping:
+            break
+        checks += 1
+        try:
+            slots = parse_find(client.find(venue.venue_id, target, cfg.party_size))
+        except (AuthError, ChallengeError) as e:
+            notifier.send("Resy watch: stopped", str(e), priority="high")
+            raise
+        except (TransportError, RateLimitError, ApiError) as e:
+            log.warning("watch check #%d error (continuing): %s", checks, e)
+            continue
+        ranked = rank_slots(slots, cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
+        log.info("watch check #%d: slots=%s | matching: %s", checks, summarize(slots, limit=12), summarize(ranked) if ranked else "none")
+        status.set(watch_checks=checks, last_poll=summarize(slots, limit=8))
+        for cand in ranked:
+            outcome = _try_book(client, cfg, venue.venue_id, target, cand, dry_run, log, notifier, status)
+            if outcome.startswith("BOOKED") or outcome.startswith("DRY-RUN"):
+                return 0
+    if status.stopping:
+        log.warning("watch stopped by request after %d checks; nothing booked", checks)
+        notifier.send("Resy watch: stopped", f"Stopped on request after {checks} checks; nothing booked.")
+        return 1
+    log.error("watch: %s reached without a matching cancellation (%d checks)", target, checks)
+    notifier.send("Resy watch: no cancellation", f"{target}: no {'/'.join(cfg.time_preferences)} opening appeared in {checks} checks.", priority="high")
     return 1
 
 

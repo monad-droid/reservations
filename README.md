@@ -127,7 +127,9 @@ floor 0.5 s) for up to 10 minutes after the release moment. The instant slots ap
 by your `time_preferences` (first match wins) and, within a time, by `table_types` order, then calls
 `/3/details` → `/3/book`. If details or book is rejected (slot taken), it moves to the next-best
 slot from the same response, then re-polls. On success it logs the confirmation, notifies, exits 0.
-If nothing was booked in the window it notifies you with what it saw and exits 1.
+If nothing was booked in the window it notifies you with what it saw, then keeps checking the target
+date every `snipe.watch_interval_min` minutes (default 10, `0` to disable) until the day itself, booking
+the first matching cancellation. This also covers a target date that is already open but sold out.
 
 `target.mode: next_friday` picks the earliest Friday that is not yet bookable, using `window_days`.
 

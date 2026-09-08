@@ -16,7 +16,7 @@ def _cfg(tmp, **over):
         target_mode="date", target_date=date(2026, 10, 9), timezone="America/Detroit",
         time_preferences=["19:00"], table_types=["Dining Room"], table_types_strict=False,
         discover_poll_interval_s=60, discover_max_hours=48, discover_required_drops=2,
-        snipe_lead_seconds=120, snipe_poll_interval_s=1.0, snipe_max_minutes=10,
+        snipe_lead_seconds=120, snipe_poll_interval_s=1.0, snipe_max_minutes=10, snipe_watch_interval_min=10,
         notify_provider="none", ntfy_server="https://ntfy.sh", ntfy_topic="", telegram_chat_id=None,
         state_file=os.path.join(tmp, "state.json"), log_file=os.path.join(tmp, "log.log"),
     )
