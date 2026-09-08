@@ -131,6 +131,8 @@ If nothing was booked in the window it notifies you with what it saw, then keeps
 date every `snipe.watch_interval_min` minutes (default 10, `0` to disable) until the day itself, booking
 the first matching cancellation. This also covers a target date that is already open but sold out.
 
+`target.dates` may list several dates in priority order ("Friday or Saturday"): each gets its own
+release-moment fast poll, open dates share the slow watch, and the first booking ends the run.
 `target.mode: next_friday` picks the earliest Friday that is not yet bookable, using `window_days`.
 
 Exit codes: 0 booked / dry run OK · 1 nothing booked / discover timed out · 2 auth (401/419) ·

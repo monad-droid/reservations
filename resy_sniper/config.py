@@ -46,7 +46,7 @@ class Config:
     venue_id: Optional[int]
     party_size: int
     target_mode: str  # "date" | "next_friday"
-    target_date: Optional[date]
+    target_dates: list[date]  # priority order; the first one that books wins
     timezone: str
     time_preferences: list[str]
     table_types: list[str]
@@ -135,18 +135,25 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
     target_mode = str(_get(raw, "target.mode", "date")).strip().lower()
     if target_mode not in ("date", "next_friday"):
         raise ConfigError("target.mode must be 'date' or 'next_friday'")
-    target_date: Optional[date] = None
-    td_raw = _get(raw, "target.date")
-    if td_raw not in (None, ""):
+    target_dates: list[date] = []
+    raw_dates = _get(raw, "target.dates")
+    if raw_dates in (None, ""):
+        single = _get(raw, "target.date")
+        raw_dates = [single] if single not in (None, "") else []
+    if not isinstance(raw_dates, list):
+        raise ConfigError("target.dates must be a list of YYYY-MM-DD")
+    for td_raw in raw_dates:
         if isinstance(td_raw, date):
-            target_date = td_raw
+            d = td_raw
         else:
             try:
-                target_date = date.fromisoformat(str(td_raw))
+                d = date.fromisoformat(str(td_raw))
             except ValueError as e:
-                raise ConfigError(f"target.date must be YYYY-MM-DD: {e}") from e
-    if target_mode == "date" and target_date is None:
-        raise ConfigError("target.mode is 'date' but target.date is not set")
+                raise ConfigError(f"target date must be YYYY-MM-DD: {e}") from e
+        if d not in target_dates:
+            target_dates.append(d)
+    if target_mode == "date" and not target_dates:
+        raise ConfigError("target.mode is 'date' but no target.dates are set")
 
     tz_name = str(_get(raw, "timezone", "America/Detroit"))
     try:
@@ -205,7 +212,7 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
         venue_id=venue_id,
         party_size=party_size,
         target_mode=target_mode,
-        target_date=target_date,
+        target_dates=target_dates,
         timezone=tz_name,
         time_preferences=prefs,
         table_types=table_types,
@@ -231,16 +238,21 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
     return cfg
 
 
-def set_target_in_file(path: str, target: date, time_specs: Optional[list[str]]) -> None:
-    """Rewrite target.mode/target.date (and time_preferences if given) in config.yaml, keeping comments.
+def set_target_in_file(path: str, targets: list[date], time_specs: Optional[list[str]]) -> None:
+    """Rewrite target.mode/target.dates (and time_preferences if given) in config.yaml, keeping comments.
 
-    time_specs: priority-ordered list of 'HH:MM' or 'HH:MM-HH:MM'.
+    targets: priority-ordered dates. time_specs: priority-ordered 'HH:MM' or 'HH:MM-HH:MM'.
     """
+    if not targets:
+        raise ConfigError("at least one target date is required")
     with open(path, "r", encoding="utf-8") as f:
         s = f.read()
-    s, n = re.subn(r'(^\s*date:\s*)"?\d{4}-\d\d-\d\d"?', lambda m: f'{m.group(1)}"{target.isoformat()}"', s, count=1, flags=re.M)
+    block = "  dates:\n" + "".join(f'    - "{d.isoformat()}"\n' for d in targets)
+    s, n = re.subn(r'^  dates:[^\n]*\n(?:\s*-\s*"?\d{4}-\d\d-\d\d"?[^\n]*\n)+', block, s, count=1, flags=re.M)
     if n == 0:
-        raise ConfigError("could not find target.date in config.yaml")
+        s, n = re.subn(r'^  date:\s*"?\d{4}-\d\d-\d\d"?[^\n]*\n', block, s, count=1, flags=re.M)
+    if n == 0:
+        raise ConfigError("could not find target.dates or target.date in config.yaml")
     s = re.sub(r"(^\s*mode:\s*)\w+", lambda m: f"{m.group(1)}date", s, count=1, flags=re.M)
     if time_specs:
         for t in time_specs:

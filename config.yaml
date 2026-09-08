@@ -9,9 +9,10 @@ venue:
 party_size: 2
 
 target:
-  mode: date                    # "date" -> use `date` below; "next_friday" -> earliest Friday that is not yet bookable,
+  mode: date                    # "date" -> use `dates` below; "next_friday" -> earliest Friday that is not yet bookable,
                                 #   computed from window_days in the state file / CLI override.
-  date: "2026-10-09"
+  dates:                        # one or more dates, in priority order. The first one that books wins; then the bot stops.
+    - "2026-10-09"
 
 timezone: America/Detroit       # venue-local timezone. Drop times and "today" are evaluated in this zone.
 

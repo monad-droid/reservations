@@ -60,24 +60,37 @@ def build_parser() -> argparse.ArgumentParser:
 def _make_target_handler(config_path: str, log: logging.Logger):
     def handle(arg: str) -> str:
         parts = arg.split()
+        usage = ("Usage: /target DATE [DATE...] [times...]\n"
+                 "e.g. /target 2026-09-11 2026-09-12 19:00-20:00\n"
+                 "Dates are YYYY-MM-DD in priority order (first to book wins). Times are exact HH:MM or ranges HH:MM-HH:MM, in priority order.")
         if not parts:
-            return "Usage: /target YYYY-MM-DD [times...]  e.g. /target 2026-10-09 19:30 18:30-20:00  (exact times and ranges, in priority order)"
+            return usage
+        targets: list[date] = []
+        specs: list[str] = []
+        for tok in parts:
+            if len(tok) == 10 and tok[4] == "-" and tok[7] == "-":
+                try:
+                    d = date.fromisoformat(tok)
+                except ValueError:
+                    return f"Bad date {tok!r}; use YYYY-MM-DD"
+                if d < date.today():
+                    return f"{d} is in the past."
+                if d not in targets:
+                    targets.append(d)
+            else:
+                specs.append(tok)
+        if not targets:
+            return usage
         try:
-            target = date.fromisoformat(parts[0])
-        except ValueError:
-            return f"Bad date {parts[0]!r}; use YYYY-MM-DD"
-        if target <= date.today():
-            return f"{target} is not in the future."
-        specs = parts[1:] or None
-        try:
-            set_target_in_file(config_path, target, specs)
+            set_target_in_file(config_path, targets, specs or None)
         except ConfigError as e:
             return f"Could not update config: {e}"
+        dates_txt = ", ".join(f"{d} ({d.strftime('%a')})" for d in targets)
         hhmm = " then ".join(specs) if specs else None
-        log.info("telegram /target: config updated to %s %s; restarting process", target, hhmm or "(times unchanged)")
+        log.info("telegram /target: config updated to %s %s; restarting process", dates_txt, hhmm or "(times unchanged)")
         # Restart with the same command line so every mode re-reads the config. execv from a thread is fine on Linux.
         threading.Timer(1.5, _reexec).start()
-        return f"Target set to {target} ({target.strftime('%A')}){' at ' + hhmm if hhmm else ''}. Restarting now; send /status in ~20s."
+        return f"Target set to {dates_txt}{' at ' + hhmm if hhmm else ''}. Restarting now; send /status in ~20s."
 
     return handle
 
@@ -119,8 +132,8 @@ def main(argv=None) -> int:
         telegram = TelegramBot(cfg.creds.telegram_bot_token, cfg.telegram_chat_id, log)
         if args.mode in ("discover", "snipe", "auto"):
             telegram.start_listener(status.text, status.request_stop, _make_target_handler(args.config, log))
-    if cfg.target_mode == "date" and cfg.target_date:
-        status.set(target=f"{cfg.target_date} ({cfg.target_date.strftime('%A')}) at {'/'.join(cfg.time_preferences)} party {cfg.party_size}")
+    if cfg.target_mode == "date" and cfg.target_dates:
+        status.set(target=", ".join(f"{d} ({d.strftime('%a')})" for d in cfg.target_dates) + f" at {'/'.join(cfg.time_preferences)} party {cfg.party_size}")
     notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram, only_when_booked=cfg.notify_only_when_booked)
     client = ResyClient(cfg.creds.api_key, cfg.creds.auth_token, log, mode=args.mode)
 

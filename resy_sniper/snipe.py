@@ -74,19 +74,25 @@ def release_moment(target: date, params: SnipeParams, cfg: Config) -> datetime:
     return datetime.combine(release_date, params.drop_time, tzinfo=cfg.tz)
 
 
-def _sleep_until(when: datetime, cfg: Config, log: logging.Logger, status: Status) -> None:
+def _wait(seconds: float, status: Status, log: logging.Logger, label: str) -> None:
+    """Sleep up to `seconds`, waking early on /stop; logs progress for long waits."""
+    deadline = time.monotonic() + max(0.0, seconds)
     while not status.stopping:
-        remaining = (when - datetime.now(cfg.tz)).total_seconds()
+        remaining = deadline - time.monotonic()
         if remaining <= 0:
             return
         if remaining > 600:
-            log.info("sleeping; %.1f hours until polling starts at %s", remaining / 3600, when.isoformat(timespec="seconds"))
+            log.info("%s in %.1f hours", label, remaining / 3600)
             status.stop_event.wait(min(remaining - 600, 1800))
         elif remaining > 60:
-            log.info("polling starts in %.0fs", remaining)
+            log.info("%s in %.0fs", label, remaining)
             status.stop_event.wait(min(remaining - 60, 60))
         else:
             status.stop_event.wait(min(remaining, 1.0))
+
+
+def _end_of_day(d: date, cfg: Config) -> datetime:
+    return datetime.combine(d, dtime(23, 59), tzinfo=cfg.tz)
 
 
 def run_snipe(
@@ -101,6 +107,12 @@ def run_snipe(
     dry_run: bool = False,
     status: Optional[Status] = None,
 ) -> int:
+    """Go after one or more target dates; the first booking wins.
+
+    Per date: fast polling (every poll_interval_s) from lead_seconds before its release moment until
+    max_minutes after; afterwards (or if it was already open) a slow check every watch_interval_min
+    until the day itself. All open dates are checked in the same round, in priority order.
+    """
     status = status or Status()
     if not cfg.creds.auth_token:
         raise ResyError("RESY_AUTH_TOKEN is not set; /3/details and /3/book need it")
@@ -112,149 +124,150 @@ def run_snipe(
     today = datetime.now(cfg.tz).date()
 
     if target_override:
-        target = date.fromisoformat(target_override)
+        targets = [date.fromisoformat(target_override)]
     elif cfg.target_mode == "next_friday":
-        target = next_friday_not_bookable(today, params.window_days)
+        targets = [next_friday_not_bookable(today, params.window_days)]
     else:
-        target = cfg.target_date  # validated non-None in config
-    assert target is not None
+        targets = list(cfg.target_dates)
+    if not targets:
+        raise ResyError("no target dates")
 
     venue = resolve_venue(client, cfg.venue_url_slug, cfg.venue_location, cfg.venue_id, log)
     log.info("venue: %s", venue)
     if venue.lead_time_in_days is not None and venue.lead_time_in_days != params.window_days:
         log.warning("Resy says lead_time_in_days=%s but using window_days=%s (%s)", venue.lead_time_in_days, params.window_days, params.source)
 
-    release = release_moment(target, params, cfg)
-    start_at = release - timedelta(seconds=cfg.snipe_lead_seconds)
-    stop_at = release + timedelta(minutes=cfg.snipe_max_minutes)
+    lead = timedelta(seconds=cfg.snipe_lead_seconds)
+    fast_len = timedelta(minutes=cfg.snipe_max_minutes)
+    watch_s = cfg.snipe_watch_interval_min * 60
+    release = {d: release_moment(d, params, cfg) for d in targets}
     now = datetime.now(cfg.tz)
     log.info(
-        "target=%s (%s) party=%d prefs=%s types=%s strict=%s | window_days=%d drop_time=%s (%s) -> release %s; poll from %s to %s every %.2fs%s",
-        target,
-        target.strftime("%A"),
-        cfg.party_size,
-        cfg.time_preferences,
-        cfg.table_types,
-        cfg.table_types_strict,
-        params.window_days,
-        params.drop_time.strftime("%H:%M:%S"),
-        params.source,
-        release.isoformat(timespec="seconds"),
-        start_at.isoformat(timespec="seconds"),
-        stop_at.isoformat(timespec="seconds"),
-        cfg.snipe_poll_interval_s,
+        "targets=%s party=%d prefs=%s types=%s strict=%s | window_days=%d drop_time=%s (%s) fast poll %.2fs, watch every %g min%s",
+        ", ".join(d.isoformat() for d in targets), cfg.party_size, cfg.time_preferences, cfg.table_types, cfg.table_types_strict,
+        params.window_days, params.drop_time.strftime("%H:%M:%S"), params.source, cfg.snipe_poll_interval_s, cfg.snipe_watch_interval_min,
         " [DRY RUN: /3/book will NOT be sent]" if dry_run else "",
     )
+    for d in targets:
+        r = release[d]
+        state = "already open" if now > r + fast_len else ("releasing now" if now >= r - lead else f"opens {r.isoformat(timespec='seconds')}")
+        log.info("  %s (%s): %s", d, d.strftime("%A"), state)
     status.set(
         venue=f"{venue.name or ''} (id {venue.venue_id})",
-        target=f"{target} ({target.strftime('%A')}) party {cfg.party_size}",
-        release=release.isoformat(timespec="seconds"),
-        polling_window=f"{start_at.strftime('%H:%M:%S')} - {stop_at.strftime('%H:%M:%S')}",
-        phase="waiting for release",
+        target=", ".join(f"{d} ({d.strftime('%a')})" for d in targets) + f" at {'/'.join(cfg.time_preferences)} party {cfg.party_size}",
+        releases="; ".join(f"{d}: {release[d].strftime('%Y-%m-%d %H:%M')}" for d in targets),
     )
-    if now > stop_at:
-        log.warning("release moment %s is already more than %g minutes in the past; polling once anyway for %g minutes", release, cfg.snipe_max_minutes, cfg.snipe_max_minutes)
-        stop_at = now + timedelta(minutes=cfg.snipe_max_minutes)
-    elif now > release:
-        log.warning("release moment %s already passed; polling immediately", release)
 
-    _sleep_until(start_at, cfg, log, status)
-    if status.stopping:
-        log.warning("snipe stopped by request before polling started")
-        notifier.send("Resy snipe: stopped", "Stopped on request before the release; nothing booked.")
-        return 1
-    log.info("polling started for %s", target)
-    status.set(phase="polling")
-
-    seen: dict[str, set[str]] = {}
+    remaining = list(targets)
+    seen: dict[date, dict[str, set[str]]] = {d: {} for d in targets}
     attempts: list[str] = []
     polls = 0
-    stop_mono = time.monotonic() + max(0.0, (stop_at - datetime.now(cfg.tz)).total_seconds())
+    checks = 0
+    missed_notified: set[date] = set()
 
-    while time.monotonic() < stop_mono and not status.stopping:
-        t0 = time.monotonic()
-        polls += 1
+    def attempt(d: date, slots: list[Slot]) -> bool:
+        for s in slots:
+            seen[d].setdefault(s.hhmm, set()).add(s.table_type)
+        ranked = rank_slots(slots, cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
+        if slots:
+            log.info("%s: slots=%s | candidates in priority order: %s", d, summarize(slots), summarize(ranked) if ranked else "none match preferences")
+        for cand in ranked:
+            outcome = _try_book(client, cfg, venue.venue_id, d, cand, dry_run, log, notifier, status)
+            attempts.append(f"{d} {cand.label()}: {outcome}")
+            if outcome.startswith("BOOKED") or outcome.startswith("DRY-RUN"):
+                return True
+        return False
+
+    def fetch(d: date) -> Optional[list[Slot]]:
         try:
-            slots = parse_find(client.find(venue.venue_id, target, cfg.party_size))
+            return parse_find(client.find(venue.venue_id, d, cfg.party_size))
         except (AuthError, ChallengeError) as e:
             notifier.send("Resy snipe: stopped", str(e), priority="high")
             raise
         except (TransportError, RateLimitError, ApiError) as e:
-            log.warning("poll #%d error (continuing): %s", polls, e)
-            slots = []
-        if slots:
-            for s in slots:
-                seen.setdefault(s.hhmm, set()).add(s.table_type)
-            ranked = rank_slots(slots, cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
-            log.info("poll #%d: slots=%s | candidates in priority order: %s", polls, summarize(slots), summarize(ranked) if ranked else "none match preferences")
-            status.set(polls=polls, last_poll=summarize(slots, limit=8))
-            for cand in ranked:
-                outcome = _try_book(client, cfg, venue.venue_id, target, cand, dry_run, log, notifier, status)
-                attempts.append(f"{cand.label()}: {outcome}")
-                if outcome.startswith("BOOKED") or outcome.startswith("DRY-RUN"):
-                    return 0
-        else:
-            log.info("poll #%d: no slots", polls)
-            status.set(polls=polls, last_poll="no slots")
-        elapsed = time.monotonic() - t0
-        status.stop_event.wait(max(0.0, cfg.snipe_poll_interval_s - elapsed))
+            log.warning("%s: request error (continuing): %s", d, e)
+            return None
 
-    if status.stopping:
-        log.warning("snipe stopped by request after %d polls; nothing booked", polls)
-        notifier.send("Resy snipe: stopped", f"Stopped on request after {polls} polls; nothing booked.")
-        return 1
-
-    seen_desc = "; ".join(f"{t} [{', '.join(sorted(v))}]" for t, v in sorted(seen.items())) or "nothing"
-    msg = (
-        f"{venue.name or venue.venue_id} {target}: nothing booked after {polls} polls "
-        f"(release {release.strftime('%H:%M:%S')}, window {params.window_days}d). Slots seen: {seen_desc}. "
-        f"Attempts: {attempts or 'none'}"
-    )
-    log.error(msg)
-    if cfg.snipe_watch_interval_min <= 0:
-        notifier.send("Resy snipe: missed", msg, priority="high")
-        return 1
-    notifier.send(
-        "Resy snipe: missed the release",
-        msg + f"\nNow checking {target} every {cfg.snipe_watch_interval_min:g} min for a cancellation until the day itself.",
-        priority="high",
-    )
-    return _watch_for_cancellation(cfg, client, notifier, log, status, venue, target, dry_run)
-
-
-def _watch_for_cancellation(cfg, client, notifier, log, status, venue, target: date, dry_run: bool) -> int:
-    """Slow polling of the target date until the end of the day before it. Books the first matching slot."""
-    interval = cfg.snipe_watch_interval_min * 60
-    end = datetime.combine(target, dtime(23, 59), tzinfo=cfg.tz)
-    status.set(phase=f"watching for a cancellation every {cfg.snipe_watch_interval_min:g} min until {target}")
-    log.info("watch: checking %s every %g min until %s", target, cfg.snipe_watch_interval_min, end.isoformat(timespec="minutes"))
-    checks = 0
-    while not status.stopping and datetime.now(cfg.tz) < end:
-        status.stop_event.wait(interval)
-        if status.stopping:
+    while remaining and not status.stopping:
+        now = datetime.now(cfg.tz)
+        expired = [d for d in remaining if now > _end_of_day(d, cfg)]
+        for d in expired:
+            log.warning("%s has passed without a booking; dropping it", d)
+        remaining = [d for d in remaining if d not in expired]
+        if not remaining:
             break
-        checks += 1
-        try:
-            slots = parse_find(client.find(venue.venue_id, target, cfg.party_size))
-        except (AuthError, ChallengeError) as e:
-            notifier.send("Resy watch: stopped", str(e), priority="high")
-            raise
-        except (TransportError, RateLimitError, ApiError) as e:
-            log.warning("watch check #%d error (continuing): %s", checks, e)
+
+        fast = [d for d in remaining if release[d] - lead <= now <= release[d] + fast_len]
+        opened = [d for d in remaining if now > release[d] + fast_len]
+        future = [d for d in remaining if now < release[d] - lead]
+
+        if fast:
+            t0 = time.monotonic()
+            polls += 1
+            status.set(phase=f"fast polling {', '.join(d.isoformat() for d in fast)}", polls=polls)
+            for d in fast:
+                slots = fetch(d)
+                if slots is None:
+                    continue
+                if not slots:
+                    log.info("poll #%d %s: no slots", polls, d)
+                    status.set(last_poll=f"{d}: no slots")
+                else:
+                    status.set(last_poll=f"{d}: {summarize(slots, limit=8)}")
+                    if attempt(d, slots):
+                        return 0
+            status.stop_event.wait(max(0.0, cfg.snipe_poll_interval_s - (time.monotonic() - t0)))
             continue
-        ranked = rank_slots(slots, cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
-        log.info("watch check #%d: slots=%s | matching: %s", checks, summarize(slots, limit=12), summarize(ranked) if ranked else "none")
-        status.set(watch_checks=checks, last_poll=summarize(slots, limit=8))
-        for cand in ranked:
-            outcome = _try_book(client, cfg, venue.venue_id, target, cand, dry_run, log, notifier, status)
-            if outcome.startswith("BOOKED") or outcome.startswith("DRY-RUN"):
-                return 0
+
+        # Dates whose fast window just ended: say so once (and drop them if watching is disabled).
+        for d in opened:
+            if d not in missed_notified and now <= release[d] + fast_len + timedelta(minutes=1):
+                missed_notified.add(d)
+                seen_desc = "; ".join(f"{t} [{', '.join(sorted(v))}]" for t, v in sorted(seen[d].items())) or "nothing"
+                msg = f"{venue.name or venue.venue_id} {d}: nothing booked in the release window. Slots seen: {seen_desc}. Attempts: {attempts or 'none'}"
+                log.error(msg)
+                if watch_s > 0:
+                    msg += f"\nNow checking every {cfg.snipe_watch_interval_min:g} min for a cancellation until the day itself."
+                notifier.send("Resy snipe: missed the release", msg, priority="high")
+        if watch_s <= 0 and opened:
+            remaining = [d for d in remaining if d not in opened]
+            if not remaining:
+                break
+            opened = []
+
+        if opened:
+            checks += 1
+            status.set(phase=f"watching {', '.join(d.isoformat() for d in opened)} every {cfg.snipe_watch_interval_min:g} min", watch_checks=checks)
+            for d in opened:
+                slots = fetch(d)
+                if slots is None:
+                    continue
+                ranked = rank_slots(slots, cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
+                log.info("watch check #%d %s: slots=%s | matching: %s", checks, d, summarize(slots, limit=12), summarize(ranked) if ranked else "none")
+                status.set(last_poll=f"{d}: {summarize(slots, limit=8)}")
+                if ranked and attempt(d, slots):
+                    return 0
+
+        waits: list[tuple[float, str]] = []
+        if future:
+            nxt = min(future, key=lambda d: release[d])
+            waits.append(((release[nxt] - lead - datetime.now(cfg.tz)).total_seconds(), f"fast polling for {nxt} starts"))
+        if opened:
+            waits.append((watch_s, "next cancellation check"))
+        if not waits:
+            break
+        wait_s, label = min(waits, key=lambda w: w[0])
+        if not opened:
+            status.set(phase=f"waiting for release of {nxt}")
+        _wait(wait_s, status, log, label)
+
     if status.stopping:
-        log.warning("watch stopped by request after %d checks; nothing booked", checks)
-        notifier.send("Resy watch: stopped", f"Stopped on request after {checks} checks; nothing booked.")
+        log.warning("snipe stopped by request; nothing booked (polls=%d, watch checks=%d)", polls, checks)
+        notifier.send("Resy snipe: stopped", f"Stopped on request; nothing booked ({polls} polls, {checks} checks).")
         return 1
-    log.error("watch: %s reached without a matching cancellation (%d checks)", target, checks)
-    notifier.send("Resy watch: no cancellation", f"{target}: no {'/'.join(cfg.time_preferences)} opening appeared in {checks} checks.", priority="high")
+    msg = f"{venue.name or venue.venue_id}: none of {', '.join(d.isoformat() for d in targets)} could be booked. Attempts: {attempts or 'none'}"
+    log.error(msg)
+    notifier.send("Resy snipe: nothing booked", msg, priority="high")
     return 1
 
 

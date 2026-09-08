@@ -13,7 +13,7 @@ from resy_sniper.state import parse_drop_time, write_state
 def _cfg(tmp, **over):
     base = dict(
         venue_url_slug="gin-gins", venue_location="grand-rapids-mi", venue_id=None, party_size=2,
-        target_mode="date", target_date=date(2026, 10, 9), timezone="America/Detroit",
+        target_mode="date", target_dates=[date(2026, 10, 9)], timezone="America/Detroit",
         time_preferences=["19:00"], table_types=["Dining Room"], table_types_strict=False,
         discover_poll_interval_s=60, discover_max_hours=48, discover_required_drops=2,
         snipe_lead_seconds=120, snipe_poll_interval_s=1.0, snipe_max_minutes=10, snipe_watch_interval_min=10,

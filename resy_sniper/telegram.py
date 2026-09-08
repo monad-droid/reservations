@@ -16,7 +16,7 @@ DEFAULT_API_BASE = "https://api.telegram.org"
 HELP = (
     "Commands:\n"
     "/status - what the bot is doing right now\n"
-    "/target YYYY-MM-DD [times...] - set the date (and times: exact HH:MM or a range HH:MM-HH:MM, in priority order); the bot restarts with it\n"
+    "/target DATE [DATE...] [times...] - set the date(s) to go after (first to book wins) and optional times (HH:MM or HH:MM-HH:MM); the bot restarts with it\n"
     "/stop - stop the current run (nothing is booked)\n"
     "/help - this text"
 )
