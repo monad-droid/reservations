@@ -120,7 +120,7 @@ def main(argv=None) -> int:
             telegram.start_listener(status.text, status.request_stop, _make_target_handler(args.config, log))
     if cfg.target_mode == "date" and cfg.target_date:
         status.set(target=f"{cfg.target_date} ({cfg.target_date.strftime('%A')}) at {'/'.join(cfg.time_preferences)} party {cfg.party_size}")
-    notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram)
+    notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram, only_when_booked=cfg.notify_only_when_booked)
     client = ResyClient(cfg.creds.api_key, cfg.creds.auth_token, log, mode=args.mode)
 
     try:
@@ -190,11 +190,11 @@ def main(argv=None) -> int:
         return EXIT_CONFIG
     except AuthError as e:
         log.error("AUTH FAILURE: %s", e)
-        notifier.send("Resy: auth failure", str(e), priority="high")
+        notifier.send("Resy: auth failure (bot stopped)", str(e), priority="high", essential=True)
         return EXIT_AUTH
     except ChallengeError as e:
         log.error("CHALLENGE / UNEXPECTED RESPONSE: %s (raw body is in the log above)", e)
-        notifier.send("Resy: challenge response", str(e), priority="high")
+        notifier.send("Resy: challenge response (bot stopped)", str(e), priority="high", essential=True)
         return EXIT_CHALLENGE
     except ResyError as e:
         log.error("%s", e)

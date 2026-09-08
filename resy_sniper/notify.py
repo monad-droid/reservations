@@ -11,10 +11,11 @@ from .telegram import TelegramBot
 
 
 class Notifier:
-    def __init__(self, provider: str, server: str, topic: str, logger: logging.Logger, telegram: Optional[TelegramBot] = None):
+    def __init__(self, provider: str, server: str, topic: str, logger: logging.Logger, telegram: Optional[TelegramBot] = None, only_when_booked: bool = False):
         self.provider = provider
         self.telegram = telegram
         self.log = logger
+        self.only_when_booked = only_when_booked
         self.ntfy_url = ""
         if provider == "ntfy":
             if topic:
@@ -24,7 +25,11 @@ class Notifier:
         elif provider == "telegram" and telegram is None:
             logger.warning("notify.provider is telegram but no bot configured; notifications disabled")
 
-    def send(self, title: str, message: str, priority: str = "default") -> None:
+    def send(self, title: str, message: str, priority: str = "default", essential: bool = False) -> None:
+        """essential=True marks a booking or a failure that stops the bot; those go out even in quiet mode."""
+        if self.only_when_booked and not essential:
+            self.log.info("NOTIFY (suppressed, quiet mode) %s — %s", title, message.replace("\n", " | "))
+            return
         self.log.info("NOTIFY [%s] %s — %s", priority, title, message.replace("\n", " | "))
         if self.provider == "telegram" and self.telegram:
             self.telegram.send(f"{title}\n{message}")

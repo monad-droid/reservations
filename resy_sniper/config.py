@@ -51,6 +51,7 @@ class Config:
     ntfy_server: str
     ntfy_topic: str
     telegram_chat_id: Optional[int]
+    notify_only_when_booked: bool
     state_file: str
     log_file: str
     creds: Credentials = field(repr=False, default=None)  # type: ignore[assignment]
@@ -209,6 +210,7 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
         ntfy_server=str(_get(raw, "notify.ntfy.server", "https://ntfy.sh")).rstrip("/"),
         ntfy_topic=str(_get(raw, "notify.ntfy.topic", "") or "").strip(),
         telegram_chat_id=telegram_chat_id,
+        notify_only_when_booked=bool(_get(raw, "notify.only_when_booked", False)),
         state_file=str(_get(raw, "state_file", "state.json")),
         log_file=str(_get(raw, "log_file", "logs/resy-sniper.log")),
     )

@@ -295,5 +295,6 @@ def _try_book(client: ResyClient, cfg: Config, venue_id: int, target: date, slot
         "Resy: BOOKED",
         f"{target} {slot.label()} for {cfg.party_size}. reservation_id={res_id}",
         priority="high",
+        essential=True,
     )
     return f"BOOKED reservation_id={res_id}"

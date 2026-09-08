@@ -45,6 +45,7 @@ snipe:
 
 notify:
   provider: telegram            # "telegram", "ntfy" or "none"
+  only_when_booked: true        # true = message only for a booking (or a failure that stops the bot); everything else goes to the log
   telegram:
     chat_id: null               # your chat id (integer). Token goes in .env as TELEGRAM_BOT_TOKEN. See README "Telegram".
                                 # With telegram, discover/snipe also answer /status, /stop and /help from this chat.

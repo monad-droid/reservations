@@ -17,7 +17,7 @@ def _cfg(tmp, **over):
         time_preferences=["19:00"], table_types=["Dining Room"], table_types_strict=False,
         discover_poll_interval_s=60, discover_max_hours=48, discover_required_drops=2,
         snipe_lead_seconds=120, snipe_poll_interval_s=1.0, snipe_max_minutes=10, snipe_watch_interval_min=10,
-        notify_provider="none", ntfy_server="https://ntfy.sh", ntfy_topic="", telegram_chat_id=None,
+        notify_provider="none", ntfy_server="https://ntfy.sh", ntfy_topic="", telegram_chat_id=None, notify_only_when_booked=False,
         state_file=os.path.join(tmp, "state.json"), log_file=os.path.join(tmp, "log.log"),
     )
     base.update(over)

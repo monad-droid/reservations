@@ -177,6 +177,9 @@ is running you can talk to it from the same chat:
 | `/stop` | stops the current run cleanly (exit 1, nothing booked) |
 | `/help` | the list above |
 
+Set `notify.only_when_booked: true` to receive a message only for a booking (or for a failure that
+stops the bot, such as an expired token); the rest is logged only. `/status` still answers.
+
 Messages from any other chat are ignored (and logged with their chat id). Setup:
 
 1. In Telegram, message **@BotFather** → `/newbot` → copy the token into `.env` as `TELEGRAM_BOT_TOKEN`.
