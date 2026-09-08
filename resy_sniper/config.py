@@ -214,3 +214,23 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
     if cfg.notify_provider == "telegram" and not cfg.creds.telegram_bot_token:
         raise ConfigError("notify.provider is telegram but TELEGRAM_BOT_TOKEN is not set in .env")
     return cfg
+
+
+def set_target_in_file(path: str, target: date, time_hhmm: Optional[str]) -> None:
+    """Rewrite target.mode/target.date (and time_preferences if given) in config.yaml, keeping comments."""
+    with open(path, "r", encoding="utf-8") as f:
+        s = f.read()
+    s, n = re.subn(r'(^\s*date:\s*)"?\d{4}-\d\d-\d\d"?', lambda m: f'{m.group(1)}"{target.isoformat()}"', s, count=1, flags=re.M)
+    if n == 0:
+        raise ConfigError("could not find target.date in config.yaml")
+    s = re.sub(r"(^\s*mode:\s*)\w+", lambda m: f"{m.group(1)}date", s, count=1, flags=re.M)
+    if time_hhmm:
+        if not _TIME_RE.match(time_hhmm):
+            raise ConfigError(f"time must be HH:MM, got {time_hhmm!r}")
+        s, n = re.subn(r'(^time_preferences:\n)(?:\s*-\s*"?\d\d:\d\d"?\n)+', lambda m: f'{m.group(1)}  - "{time_hhmm}"\n', s, count=1, flags=re.M)
+        if n == 0:
+            raise ConfigError("could not find time_preferences in config.yaml")
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(s)
+    os.replace(tmp, path)

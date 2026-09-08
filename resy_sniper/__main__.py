@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+import threading
 from datetime import date, datetime
 
 from . import __version__
 from .client import AuthError, ChallengeError, ResyClient, ResyError
-from .config import ConfigError, load_config
+from .config import ConfigError, load_config, set_target_in_file
 from .discover import run_discover
 from .logsetup import setup_logging
 from .notify import Notifier
@@ -55,6 +57,48 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _make_target_handler(config_path: str, log: logging.Logger):
+    def handle(arg: str) -> str:
+        parts = arg.split()
+        if not parts:
+            return "Usage: /target YYYY-MM-DD [HH:MM]  e.g. /target 2026-10-09 19:30"
+        try:
+            target = date.fromisoformat(parts[0])
+        except ValueError:
+            return f"Bad date {parts[0]!r}; use YYYY-MM-DD"
+        if target <= date.today():
+            return f"{target} is not in the future."
+        hhmm = parts[1] if len(parts) > 1 else None
+        try:
+            set_target_in_file(config_path, target, hhmm)
+        except ConfigError as e:
+            return f"Could not update config: {e}"
+        log.info("telegram /target: config updated to %s %s; restarting process", target, hhmm or "(time unchanged)")
+        # Restart with the same command line so every mode re-reads the config. execv from a thread is fine on Linux.
+        threading.Timer(1.5, _reexec).start()
+        return f"Target set to {target} ({target.strftime('%A')}){' at ' + hhmm if hhmm else ''}. Restarting now; send /status in ~20s."
+
+    return handle
+
+
+def _reexec() -> None:
+    # Drop any --target-date override so the freshly written config.yaml decides the target.
+    argv = []
+    skip = False
+    for a in sys.argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if a == "--target-date":
+            skip = True
+            continue
+        if a.startswith("--target-date="):
+            continue
+        argv.append(a)
+    logging.shutdown()
+    os.execv(sys.executable, [sys.executable, "-m", "resy_sniper", *argv])
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     dry_run = bool(args.dry_run or getattr(args, "dry_run_sub", False))
@@ -73,7 +117,9 @@ def main(argv=None) -> int:
     if cfg.notify_provider == "telegram" and cfg.creds.telegram_bot_token and cfg.telegram_chat_id is not None:
         telegram = TelegramBot(cfg.creds.telegram_bot_token, cfg.telegram_chat_id, log)
         if args.mode in ("discover", "snipe", "auto"):
-            telegram.start_listener(status.text, status.request_stop)
+            telegram.start_listener(status.text, status.request_stop, _make_target_handler(args.config, log))
+    if cfg.target_mode == "date" and cfg.target_date:
+        status.set(target=f"{cfg.target_date} ({cfg.target_date.strftime('%A')}) at {'/'.join(cfg.time_preferences)} party {cfg.party_size}")
     notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram)
     client = ResyClient(cfg.creds.api_key, cfg.creds.auth_token, log, mode=args.mode)
 
@@ -113,7 +159,15 @@ def main(argv=None) -> int:
                     log.error("discover did not finish; not starting snipe")
                     return rc
                 status.set(mode="auto", phase="discover done; starting snipe")
-            return run_snipe(cfg, client, notifier, log, target_override=args.target_date, dry_run=dry_run, status=status)
+            rc = run_snipe(cfg, client, notifier, log, target_override=args.target_date, dry_run=dry_run, status=status)
+            if telegram is None or status.stopping:
+                return rc
+            # Stay alive so /target can set the next date (the process restarts itself) and /stop can end it.
+            status.set(phase="idle: send /target YYYY-MM-DD [HH:MM] for the next reservation, or /stop")
+            log.info("snipe finished (exit %d); idling for Telegram commands (/target, /stop)", rc)
+            notifier.send("Resy: idle", "Send /target YYYY-MM-DD [HH:MM] to set the next reservation to go after, or /stop to exit.")
+            status.stop_event.wait()
+            return rc
 
         if args.mode == "snipe":
             if args.target_date:

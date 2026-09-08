@@ -27,6 +27,7 @@ RELEASE_AT = [0.0]  # monotonic timestamp after which RELEASE_DAY has slots
 BOOKED = []  # config tokens already booked (first booking of a taken slot -> 404)
 TAKEN_ON_BOOK = set(os.environ.get("TAKEN_ON_BOOK", "").split(",")) - {""}
 COUNTER = {"find": 0}
+CONFIRMED = [0]  # highest getUpdates offset seen (fake Telegram)
 
 
 def _slots_for(day: str) -> list[dict]:
@@ -117,8 +118,9 @@ class Handler(BaseHTTPRequestHandler):
         if u.path.startswith("/bot") and u.path.endswith("/getUpdates"):
             # fake Telegram: hand out one queued /status command (TELEGRAM_CMD env), then nothing
             q_off = int(q.get("offset", "0") or 0)
+            CONFIRMED[0] = max(CONFIRMED[0], q_off)  # Telegram forgets updates older than the last offset seen
             cmd = os.environ.get("TELEGRAM_CMD", "/status")
-            upd = [] if q_off > 1 or not cmd else [{"update_id": 1, "message": {"chat": {"id": 424242}, "text": cmd}}]
+            upd = [] if CONFIRMED[0] > 1 or not cmd else [{"update_id": 1, "message": {"chat": {"id": 424242}, "text": cmd}}]
             if not upd:
                 time.sleep(min(float(q.get("timeout", "1")), 2))
             return self._send(200, {"ok": True, "result": upd})

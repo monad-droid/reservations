@@ -141,7 +141,8 @@ Exit codes: 0 booked / dry run OK · 1 nothing booked / discover timed out · 2 
 ```
 
 Runs `discover` unless `state.json` is already confirmed, then goes straight into `snipe` for the
-configured target. Accepts `--dry-run` and `--target-date` like `snipe`.
+configured target. Accepts `--dry-run` and `--target-date` like `snipe`. With Telegram configured the
+process stays alive after the snipe (booked or not) and waits for `/target` or `/stop`.
 
 ### Under systemd
 
@@ -170,6 +171,7 @@ is running you can talk to it from the same chat:
 | command | reply |
 | --- | --- |
 | `/status` | mode, venue, target, computed release moment, polls so far, last poll result, drops observed |
+| `/target YYYY-MM-DD [HH:MM]` | sets the reservation date (and, optionally, the single preferred time) in `config.yaml` and restarts the bot with it |
 | `/stop` | stops the current run cleanly (exit 1, nothing booked) |
 | `/help` | the list above |
 
