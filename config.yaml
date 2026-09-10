@@ -43,7 +43,8 @@ snipe:
   lead_seconds: 120             # start polling this long before the computed release moment
   poll_interval_s: 1.0          # seconds between /4/find polls once live (floor 0.5)
   max_minutes: 10               # stop fast polling this long after the release moment
-  watch_interval_min: 10        # then keep checking the target date every N minutes for a cancellation, until the day itself (0 = off)
+  watch_interval_min: 10        # then keep checking the target date every N minutes for a cancellation (0 = off) ...
+  stop_hours_before: 2          # ... until this many hours before the earliest preferred time on that date (no last-minute bookings)
 
 notify:
   provider: telegram            # "telegram", "ntfy" or "none"

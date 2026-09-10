@@ -91,8 +91,21 @@ def _wait(seconds: float, status: Status, log: logging.Logger, label: str) -> No
             status.stop_event.wait(min(remaining, 1.0))
 
 
-def _end_of_day(d: date, cfg: Config) -> datetime:
-    return datetime.combine(d, dtime(23, 59), tzinfo=cfg.tz)
+def _earliest_pref_minutes(time_prefs: list[str]) -> int:
+    """Earliest minute-of-day among the preferences ('HH:MM' or 'HH:MM-HH:MM' -> its start)."""
+    mins = []
+    for p in time_prefs:
+        start = p.split("-", 1)[0]
+        h, m = start.split(":")
+        mins.append(int(h) * 60 + int(m))
+    return min(mins) if mins else 0
+
+
+def _cutoff(d: date, cfg: Config) -> datetime:
+    """Stop going after `d` this moment: stop_hours_before hours before the earliest preferred time."""
+    m = _earliest_pref_minutes(cfg.time_preferences)
+    earliest = datetime.combine(d, dtime(m // 60, m % 60), tzinfo=cfg.tz)
+    return earliest - timedelta(hours=cfg.snipe_stop_hours_before)
 
 
 def run_snipe(
@@ -151,7 +164,7 @@ def run_snipe(
     for d in targets:
         r = release[d]
         state = "already open" if now > r + fast_len else ("releasing now" if now >= r - lead else f"opens {r.isoformat(timespec='seconds')}")
-        log.info("  %s (%s): %s", d, d.strftime("%A"), state)
+        log.info("  %s (%s): %s; giving up at %s", d, d.strftime("%A"), state, _cutoff(d, cfg).strftime("%Y-%m-%d %H:%M"))
     status.set(
         venue=f"{venue.name or ''} (id {venue.venue_id})",
         target=", ".join(f"{d} ({d.strftime('%a')})" for d in targets) + f" at {'/'.join(cfg.time_preferences)} party {cfg.party_size}",
@@ -190,9 +203,9 @@ def run_snipe(
 
     while remaining and not status.stopping:
         now = datetime.now(cfg.tz)
-        expired = [d for d in remaining if now > _end_of_day(d, cfg)]
+        expired = [d for d in remaining if now > _cutoff(d, cfg)]
         for d in expired:
-            log.warning("%s has passed without a booking; dropping it", d)
+            log.warning("%s: cutoff %s reached without a booking; dropping it", d, _cutoff(d, cfg).strftime("%Y-%m-%d %H:%M"))
         remaining = [d for d in remaining if d not in expired]
         if not remaining:
             break
@@ -256,6 +269,8 @@ def run_snipe(
             waits.append((watch_s, "next cancellation check"))
         if not waits:
             break
+        soonest_cutoff = min((_cutoff(d, cfg) - datetime.now(cfg.tz)).total_seconds() for d in remaining)
+        waits.append((max(0.0, soonest_cutoff) + 1, "cutoff"))
         wait_s, label = min(waits, key=lambda w: w[0])
         if not opened:
             status.set(phase=f"waiting for release of {nxt}")
