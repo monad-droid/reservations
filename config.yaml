@@ -44,7 +44,8 @@ snipe:
   poll_interval_s: 1.0          # seconds between /4/find polls once live (floor 0.5)
   max_minutes: 10               # stop fast polling this long after the release moment
   watch_interval_min: 10        # then keep checking the target date every N minutes for a cancellation (0 = off) ...
-  stop_hours_before: 2          # ... until this many hours before the earliest preferred time on that date (no last-minute bookings)
+  stop_hours_before: 1.5        # never book a slot starting less than this many hours from now; give up on a date this long
+                                # before its latest preferred time (7-8pm -> last check 6:30pm)
 
 notify:
   provider: telegram            # "telegram", "ntfy" or "none"

@@ -31,9 +31,23 @@ class CutoffTests(unittest.TestCase):
         from resy_sniper.snipe import _cutoff
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _cfg(tmp, time_preferences=["19:30", "18:30-20:00"])
-            self.assertEqual(_cutoff(date(2026, 9, 11), cfg), datetime(2026, 9, 11, 16, 30, tzinfo=ZoneInfo("America/Detroit")))
-            cfg = _cfg(tmp, time_preferences=["19:00-20:00"], snipe_stop_hours_before=2)
-            self.assertEqual(_cutoff(date(2026, 9, 11), cfg).strftime("%H:%M"), "17:00")
+            self.assertEqual(_cutoff(date(2026, 9, 11), cfg), datetime(2026, 9, 11, 18, 0, tzinfo=ZoneInfo("America/Detroit")))
+            cfg = _cfg(tmp, time_preferences=["19:00-20:00"], snipe_stop_hours_before=1.5)
+            self.assertEqual(_cutoff(date(2026, 9, 11), cfg).strftime("%H:%M"), "18:30")
+
+    def test_slots_too_soon_are_ignored(self):
+        from unittest import mock
+        from resy_sniper.snipe import _not_too_soon
+        from resy_sniper.slots import Slot
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _cfg(tmp, time_preferences=["19:00-20:00"], snipe_stop_hours_before=1.5)
+            slots = [Slot(datetime(2026, 9, 11, h, m), f"t{h}{m}", "Dining Room") for h, m in ((19, 0), (19, 30), (20, 0))]
+            fake_now = datetime(2026, 9, 11, 17, 45, tzinfo=ZoneInfo("America/Detroit"))
+            with mock.patch("resy_sniper.snipe.datetime") as dt:
+                dt.now.return_value = fake_now
+                dt.combine = datetime.combine
+                kept = _not_too_soon(slots, cfg, logging.getLogger("t"))
+            self.assertEqual([s.hhmm for s in kept], ["19:30", "20:00"])
 
 
 class TimingTests(unittest.TestCase):

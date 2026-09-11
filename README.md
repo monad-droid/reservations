@@ -130,8 +130,9 @@ slot from the same response, then re-polls. On success it logs the confirmation,
 If nothing was booked in the window it notifies you with what it saw, then keeps checking the target
 date every `snipe.watch_interval_min` minutes (default 10, `0` to disable) until the day itself, booking
 the first matching cancellation. This also covers a target date that is already open but sold out.
-Each date is given up `snipe.stop_hours_before` hours (default 2) before its earliest preferred time, so
-you are never booked at the last minute.
+A slot is only booked if it starts at least `snipe.stop_hours_before` hours from now (default 1.5), and a
+date is given up that long before its latest preferred time, so you are never booked at the last minute
+(7-8 PM: a 7:00 slot is ignored after 5:30, the last check is at 6:30).
 
 `target.dates` may list several dates in priority order ("Friday or Saturday"): each gets its own
 release-moment fast poll, open dates share the slow watch, and the first booking ends the run.

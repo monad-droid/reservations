@@ -225,7 +225,7 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
         snipe_poll_interval_s=snipe_poll,
         snipe_max_minutes=float(_num("snipe.max_minutes", 10, lo=0.1)),
         snipe_watch_interval_min=float(_num("snipe.watch_interval_min", 10, lo=0)),
-        snipe_stop_hours_before=float(_num("snipe.stop_hours_before", 2, lo=0)),
+        snipe_stop_hours_before=float(_num("snipe.stop_hours_before", 1.5, lo=0)),
         notify_provider=provider,
         ntfy_server=str(_get(raw, "notify.ntfy.server", "https://ntfy.sh")).rstrip("/"),
         ntfy_topic=str(_get(raw, "notify.ntfy.topic", "") or "").strip(),

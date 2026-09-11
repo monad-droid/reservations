@@ -91,21 +91,31 @@ def _wait(seconds: float, status: Status, log: logging.Logger, label: str) -> No
             status.stop_event.wait(min(remaining, 1.0))
 
 
-def _earliest_pref_minutes(time_prefs: list[str]) -> int:
-    """Earliest minute-of-day among the preferences ('HH:MM' or 'HH:MM-HH:MM' -> its start)."""
+def _latest_pref_minutes(time_prefs: list[str]) -> int:
+    """Latest minute-of-day among the preferences ('HH:MM' or 'HH:MM-HH:MM' -> its end)."""
     mins = []
     for p in time_prefs:
-        start = p.split("-", 1)[0]
-        h, m = start.split(":")
+        end = p.split("-", 1)[-1]
+        h, m = end.split(":")
         mins.append(int(h) * 60 + int(m))
-    return min(mins) if mins else 0
+    return max(mins) if mins else 0
 
 
 def _cutoff(d: date, cfg: Config) -> datetime:
-    """Stop going after `d` this moment: stop_hours_before hours before the earliest preferred time."""
-    m = _earliest_pref_minutes(cfg.time_preferences)
-    earliest = datetime.combine(d, dtime(m // 60, m % 60), tzinfo=cfg.tz)
-    return earliest - timedelta(hours=cfg.snipe_stop_hours_before)
+    """Give up on `d` at this moment: stop_hours_before hours before the latest preferred time (rolling margin)."""
+    m = _latest_pref_minutes(cfg.time_preferences)
+    latest = datetime.combine(d, dtime(m // 60, m % 60), tzinfo=cfg.tz)
+    return latest - timedelta(hours=cfg.snipe_stop_hours_before)
+
+
+def _not_too_soon(slots: list[Slot], cfg: Config, log: logging.Logger) -> list[Slot]:
+    """Drop slots that start less than stop_hours_before hours from now (venue-local wall clock)."""
+    earliest_ok = datetime.now(cfg.tz).replace(tzinfo=None) + timedelta(hours=cfg.snipe_stop_hours_before)
+    kept = [s for s in slots if s.start >= earliest_ok]
+    dropped = len(slots) - len(kept)
+    if dropped:
+        log.info("ignoring %d slot(s) starting before %s (less than %g h away)", dropped, earliest_ok.strftime("%Y-%m-%d %H:%M"), cfg.snipe_stop_hours_before)
+    return kept
 
 
 def run_snipe(
@@ -181,7 +191,7 @@ def run_snipe(
     def attempt(d: date, slots: list[Slot]) -> bool:
         for s in slots:
             seen[d].setdefault(s.hhmm, set()).add(s.table_type)
-        ranked = rank_slots(slots, cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
+        ranked = rank_slots(_not_too_soon(slots, cfg, log), cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
         if slots:
             log.info("%s: slots=%s | candidates in priority order: %s", d, summarize(slots), summarize(ranked) if ranked else "none match preferences")
         for cand in ranked:
@@ -255,7 +265,7 @@ def run_snipe(
                 slots = fetch(d)
                 if slots is None:
                     continue
-                ranked = rank_slots(slots, cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
+                ranked = rank_slots(_not_too_soon(slots, cfg, log), cfg.time_preferences, cfg.table_types, cfg.table_types_strict)
                 log.info("watch check #%d %s: slots=%s | matching: %s", checks, d, summarize(slots, limit=12), summarize(ranked) if ranked else "none")
                 status.set(last_poll=f"{d}: {summarize(slots, limit=8)}")
                 if ranked and attempt(d, slots):
