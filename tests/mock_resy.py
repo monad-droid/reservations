@@ -28,6 +28,7 @@ BOOKED = []  # config tokens already booked (first booking of a taken slot -> 40
 TAKEN_ON_BOOK = set(os.environ.get("TAKEN_ON_BOOK", "").split(",")) - {""}
 COUNTER = {"find": 0}
 CONFIRMED = [0]  # highest getUpdates offset seen (fake Telegram)
+STARTED = time.monotonic()
 
 
 def _slots_for(day: str) -> list[dict]:
@@ -120,7 +121,8 @@ class Handler(BaseHTTPRequestHandler):
             q_off = int(q.get("offset", "0") or 0)
             CONFIRMED[0] = max(CONFIRMED[0], q_off)  # Telegram forgets updates older than the last offset seen
             cmd = os.environ.get("TELEGRAM_CMD", "/status")
-            upd = [] if CONFIRMED[0] > 1 or not cmd else [{"update_id": 1, "message": {"chat": {"id": 424242}, "text": cmd}}]
+            ready = time.monotonic() >= STARTED + float(os.environ.get("TELEGRAM_CMD_DELAY", "0"))
+            upd = [] if CONFIRMED[0] > 1 or not cmd or not ready else [{"update_id": 1, "message": {"chat": {"id": 424242}, "text": cmd}}]
             if not upd:
                 time.sleep(min(float(q.get("timeout", "1")), 2))
             return self._send(200, {"ok": True, "result": upd})

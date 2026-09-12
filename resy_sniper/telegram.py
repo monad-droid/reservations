@@ -17,7 +17,8 @@ HELP = (
     "Commands:\n"
     "/status - what the bot is doing right now\n"
     "/target DATE [DATE...] [times...] - set the date(s) to go after (first to book wins) and optional times (HH:MM or HH:MM-HH:MM); the bot restarts with it\n"
-    "/stop - stop the current run (nothing is booked)\n"
+    "/stop - stop searching for the current target(s); the bot stays idle and keeps listening\n"
+    "/shutdown - exit the bot process (needs a restart from the server)\n"
     "/help - this text"
 )
 
@@ -31,6 +32,7 @@ class TelegramBot:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._target_fn: Optional[Callable[[str], str]] = None
+        self._shutdown_fn: Optional[Callable[[str], None]] = None
 
     # ----------------------------------------------------------------- send
 
@@ -52,11 +54,14 @@ class TelegramBot:
         status_fn: Callable[[], str],
         stop_fn: Callable[[str], None],
         target_fn: Optional[Callable[[str], str]] = None,
+        shutdown_fn: Optional[Callable[[str], None]] = None,
     ) -> None:
-        """target_fn receives the text after /target and returns a reply (it may restart the process)."""
+        """target_fn receives the text after /target and returns a reply (it may restart the process).
+        stop_fn cancels the current search; shutdown_fn (if given) exits the process."""
         if self._thread:
             return
         self._target_fn = target_fn
+        self._shutdown_fn = shutdown_fn
         self._thread = threading.Thread(target=self._loop, args=(status_fn, stop_fn), name="telegram-listener", daemon=True)
         self._thread.start()
         self.log.info("telegram listener started (chat_id=%s); send /status or /stop", self.chat_id)
@@ -109,8 +114,15 @@ class TelegramBot:
         if cmd == "/status":
             self.send(status_fn())
         elif cmd == "/stop":
-            self.send("Stopping. Nothing will be booked by this run.")
+            self.send("Stopping the current search. Nothing more will be booked until you send /target.")
             stop_fn("telegram /stop")
+        elif cmd == "/shutdown":
+            if self._shutdown_fn is None:
+                self.send("Shutting down.")
+                stop_fn("telegram /shutdown")
+            else:
+                self.send("Shutting down the bot process. It has to be started again from the server.")
+                self._shutdown_fn("telegram /shutdown")
         elif cmd == "/target":
             args = text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else ""
             if self._target_fn is None:

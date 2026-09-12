@@ -42,6 +42,10 @@ class TelegramTests(unittest.TestCase):
         self.assertIn("phase: polling", post.call_args[1]["json"]["text"])
         self.bot._handle({"chat": {"id": 424242}, "text": "/stop@resy_bot"}, status.text, status.request_stop)
         self.assertTrue(status.stopping)
+        self.assertFalse(status.shutting_down)
+        self.bot._shutdown_fn = status.request_shutdown
+        self.bot._handle({"chat": {"id": 424242}, "text": "/shutdown"}, status.text, status.request_stop)
+        self.assertTrue(status.shutting_down)
 
     @mock.patch("resy_sniper.telegram.requests.post")
     @mock.patch("resy_sniper.telegram.requests.get")

@@ -181,7 +181,8 @@ is running you can talk to it from the same chat:
 | --- | --- |
 | `/status` | mode, venue, target, computed release moment, polls so far, last poll result, drops observed |
 | `/target YYYY-MM-DD [times...]` | sets the reservation date and, optionally, the times to go after (exact `19:30` or a range `18:30-20:00`, in priority order) in `config.yaml`, then restarts the bot with it |
-| `/stop` | stops the current run cleanly (exit 1, nothing booked) |
+| `/stop` | cancels the current search; the bot stays idle and listening, and a restart will not resume those dates |
+| `/shutdown` | exits the process (needs a restart from the server) |
 | `/help` | the list above |
 
 Set `notify.only_when_booked: true` to receive a message only for a booking (or for a failure that

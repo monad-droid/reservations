@@ -10,7 +10,8 @@ class Status:
     def __init__(self):
         self._lock = threading.Lock()
         self._fields: dict[str, str] = {}
-        self.stop_event = threading.Event()
+        self.stop_event = threading.Event()  # cancel the current search
+        self.shutdown_event = threading.Event()  # exit the process
         self.started = datetime.now().astimezone()
 
     def set(self, **fields) -> None:
@@ -22,9 +23,21 @@ class Status:
         self.set(stop_reason=reason)
         self.stop_event.set()
 
+    def request_shutdown(self, reason: str) -> None:
+        self.set(stop_reason=reason)
+        self.shutdown_event.set()
+        self.stop_event.set()
+
     @property
     def stopping(self) -> bool:
         return self.stop_event.is_set()
+
+    @property
+    def shutting_down(self) -> bool:
+        return self.shutdown_event.is_set()
+
+    def reset_stop(self) -> None:
+        self.stop_event.clear()
 
     def text(self) -> str:
         with self._lock:

@@ -157,9 +157,9 @@ def run_snipe(
 
     prior = _prior_booking(cfg, targets, today)
     if prior:
-        log.info("this target set (%s) already produced a booking: %s. Not searching again; send /target to set a new one.",
+        log.info("this target set (%s) is done: %s. Not searching; send /target to set a new one.",
                  ", ".join(d.isoformat() for d in targets), prior)
-        status.set(phase=f"already booked for this target set: {prior}. Send /target for a new one.")
+        status.set(phase=f"done for this target set ({prior}). Send /target for a new one.")
         return 0
 
     venue = resolve_venue(client, cfg.venue_url_slug, cfg.venue_location, cfg.venue_id, log)
@@ -296,6 +296,7 @@ def run_snipe(
 
     if status.stopping:
         log.warning("snipe stopped by request; nothing booked (polls=%d, watch checks=%d)", polls, checks)
+        _record_stopped(cfg, targets, log)
         notifier.send("Resy snipe: stopped", f"Stopped on request; nothing booked ({polls} polls, {checks} checks).")
         return 1
     msg = f"{venue.name or venue.venue_id}: none of {', '.join(d.isoformat() for d in targets)} could be booked. Attempts: {attempts or 'none'}"
@@ -322,9 +323,21 @@ def _record_booking(cfg: Config, targets: list[date], d: date, slot: Slot, outco
         log.warning("could not record booking in %s: %s", cfg.state_file, e)
 
 
+def _record_stopped(cfg: Config, targets: list[date], log: logging.Logger) -> None:
+    """Remember that this target set was cancelled with /stop, so a restart does not resume it."""
+    try:
+        state = read_state(cfg.state_file) or {}
+        state["stopped_targets"] = sorted(t.isoformat() for t in targets)
+        write_state(cfg.state_file, state)
+    except OSError as e:
+        log.warning("could not record stop in %s: %s", cfg.state_file, e)
+
+
 def _prior_booking(cfg: Config, targets: list[date], today: date) -> Optional[str]:
-    """A recorded booking for this exact target set whose date has not passed, or None."""
+    """A recorded booking (or /stop) for this exact target set that is still relevant, or None."""
     state = read_state(cfg.state_file) or {}
+    if sorted(state.get("stopped_targets") or []) == sorted(t.isoformat() for t in targets):
+        return "stopped with /stop"
     lb = state.get("last_booking")
     if not isinstance(lb, dict):
         return None
@@ -340,8 +353,11 @@ def _prior_booking(cfg: Config, targets: list[date], today: date) -> Optional[st
 
 
 def clear_last_booking(state_file: str) -> None:
+    """Forget the last booking and any /stop for the previous target set (a new /target is a new intent)."""
     state = read_state(state_file) or {}
-    if state.pop("last_booking", None) is not None:
+    changed = state.pop("last_booking", None) is not None
+    changed = (state.pop("stopped_targets", None) is not None) or changed
+    if changed:
         write_state(state_file, state)
 
 

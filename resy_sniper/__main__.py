@@ -135,7 +135,7 @@ def main(argv=None) -> int:
     if cfg.notify_provider == "telegram" and cfg.creds.telegram_bot_token and cfg.telegram_chat_id is not None:
         telegram = TelegramBot(cfg.creds.telegram_bot_token, cfg.telegram_chat_id, log)
         if args.mode in ("discover", "snipe", "auto"):
-            telegram.start_listener(status.text, status.request_stop, _make_target_handler(args.config, cfg.state_file, log))
+            telegram.start_listener(status.text, status.request_stop, _make_target_handler(args.config, cfg.state_file, log), status.request_shutdown)
     if cfg.target_mode == "date" and cfg.target_dates:
         status.set(target=", ".join(f"{d} ({d.strftime('%a')})" for d in cfg.target_dates) + f" at {'/'.join(cfg.time_preferences)} party {cfg.party_size}")
     notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram, only_when_booked=cfg.notify_only_when_booked)
@@ -173,18 +173,21 @@ def main(argv=None) -> int:
                 log.info("state file %s is already confirmed (drop %s, window %s); skipping discover", cfg.state_file, state.get("drop_time_local"), state.get("window_days"))
             else:
                 rc = run_discover(cfg, client, notifier, log, status)
-                if rc != 0:
+                if rc != 0 and not (status.stopping and telegram is not None and not status.shutting_down):
                     log.error("discover did not finish; not starting snipe")
                     return rc
                 status.set(mode="auto", phase="discover done; starting snipe")
-            rc = run_snipe(cfg, client, notifier, log, target_override=args.target_date, dry_run=dry_run, status=status)
-            if telegram is None or status.stopping:
+            rc = 1
+            if not status.stopping:
+                rc = run_snipe(cfg, client, notifier, log, target_override=args.target_date, dry_run=dry_run, status=status)
+            if telegram is None or status.shutting_down:
                 return rc
-            # Stay alive so /target can set the next date (the process restarts itself) and /stop can end it.
-            status.set(phase="idle: send /target YYYY-MM-DD [HH:MM] for the next reservation, or /stop")
-            log.info("snipe finished (exit %d); idling for Telegram commands (/target, /stop)", rc)
-            notifier.send("Resy: idle", "Send /target YYYY-MM-DD [HH:MM] to set the next reservation to go after, or /stop to exit.")
-            status.stop_event.wait()
+            # Stay alive so /target can set the next dates (the process restarts itself). /shutdown exits.
+            status.reset_stop()
+            status.set(phase="idle: send /target DATE [DATE...] [times] for the next reservation, or /shutdown")
+            log.info("search finished (exit %d); idling for Telegram commands (/target, /shutdown)", rc)
+            notifier.send("Resy: idle", "Send /target DATE [DATE...] [times] to set the next reservation to go after.")
+            status.shutdown_event.wait()
             return rc
 
         if args.mode == "snipe":
