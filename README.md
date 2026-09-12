@@ -136,6 +136,8 @@ date is given up that long before its latest preferred time, so you are never bo
 
 `target.dates` may list several dates in priority order ("Friday or Saturday"): each gets its own
 release-moment fast poll, open dates share the slow watch, and the first booking ends the run.
+A booking is recorded in `state.json`; if the bot is restarted with the same target set it stays idle
+instead of going after the remaining dates. A new `/target` clears that record.
 `target.mode: next_friday` picks the earliest Friday that is not yet bookable, using `window_days`.
 
 Exit codes: 0 booked / dry run OK · 1 nothing booked / discover timed out · 2 auth (401/419) ·

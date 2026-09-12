@@ -16,7 +16,7 @@ from .discover import run_discover
 from .logsetup import setup_logging
 from .notify import Notifier
 from .slots import parse_find, rank_slots, summarize
-from .snipe import run_snipe
+from .snipe import clear_last_booking, run_snipe
 from .state import read_state
 from .status import Status
 from .telegram import TelegramBot
@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _make_target_handler(config_path: str, log: logging.Logger):
+def _make_target_handler(config_path: str, state_file: str, log: logging.Logger):
     def handle(arg: str) -> str:
         parts = arg.split()
         usage = ("Usage: /target DATE [DATE...] [times...]\n"
@@ -85,6 +85,10 @@ def _make_target_handler(config_path: str, log: logging.Logger):
             set_target_in_file(config_path, targets, specs or None)
         except ConfigError as e:
             return f"Could not update config: {e}"
+        try:
+            clear_last_booking(state_file)  # a new /target is a new intent, even for the same dates
+        except OSError as e:
+            log.warning("could not clear last booking: %s", e)
         dates_txt = ", ".join(f"{d} ({d.strftime('%a')})" for d in targets)
         hhmm = " then ".join(specs) if specs else None
         log.info("telegram /target: config updated to %s %s; restarting process", dates_txt, hhmm or "(times unchanged)")
@@ -131,7 +135,7 @@ def main(argv=None) -> int:
     if cfg.notify_provider == "telegram" and cfg.creds.telegram_bot_token and cfg.telegram_chat_id is not None:
         telegram = TelegramBot(cfg.creds.telegram_bot_token, cfg.telegram_chat_id, log)
         if args.mode in ("discover", "snipe", "auto"):
-            telegram.start_listener(status.text, status.request_stop, _make_target_handler(args.config, log))
+            telegram.start_listener(status.text, status.request_stop, _make_target_handler(args.config, cfg.state_file, log))
     if cfg.target_mode == "date" and cfg.target_dates:
         status.set(target=", ".join(f"{d} ({d.strftime('%a')})" for d in cfg.target_dates) + f" at {'/'.join(cfg.time_preferences)} party {cfg.party_size}")
     notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram, only_when_booked=cfg.notify_only_when_booked)

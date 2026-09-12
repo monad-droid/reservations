@@ -20,7 +20,7 @@ from .client import (
 from .config import Config
 from .notify import Notifier
 from .slots import Slot, parse_find, rank_slots, summarize
-from .state import parse_drop_time, read_state
+from .state import parse_drop_time, read_state, write_state
 from .status import Status
 from .venue import resolve_venue
 
@@ -155,6 +155,13 @@ def run_snipe(
     if not targets:
         raise ResyError("no target dates")
 
+    prior = _prior_booking(cfg, targets, today)
+    if prior:
+        log.info("this target set (%s) already produced a booking: %s. Not searching again; send /target to set a new one.",
+                 ", ".join(d.isoformat() for d in targets), prior)
+        status.set(phase=f"already booked for this target set: {prior}. Send /target for a new one.")
+        return 0
+
     venue = resolve_venue(client, cfg.venue_url_slug, cfg.venue_location, cfg.venue_id, log)
     log.info("venue: %s", venue)
     if venue.lead_time_in_days is not None and venue.lead_time_in_days != params.window_days:
@@ -198,6 +205,7 @@ def run_snipe(
             outcome = _try_book(client, cfg, venue.venue_id, d, cand, dry_run, log, notifier, status)
             attempts.append(f"{d} {cand.label()}: {outcome}")
             if outcome.startswith("BOOKED") or outcome.startswith("DRY-RUN"):
+                _record_booking(cfg, targets, d, cand, outcome, dry_run, log)
                 return True
         return False
 
@@ -294,6 +302,47 @@ def run_snipe(
     log.error(msg)
     notifier.send("Resy snipe: nothing booked", msg, priority="high")
     return 1
+
+
+def _record_booking(cfg: Config, targets: list[date], d: date, slot: Slot, outcome: str, dry_run: bool, log: logging.Logger) -> None:
+    """Remember the booking in the state file so a restart does not go after the other dates of this target set."""
+    try:
+        state = read_state(cfg.state_file) or {}
+        state["last_booking"] = {
+            "date": d.isoformat(),
+            "slot": slot.label(),
+            "outcome": outcome,
+            "dry_run": dry_run,
+            "targets": [t.isoformat() for t in targets],
+            "time_preferences": list(cfg.time_preferences),
+            "booked_at": datetime.now(cfg.tz).isoformat(timespec="seconds"),
+        }
+        write_state(cfg.state_file, state)
+    except OSError as e:
+        log.warning("could not record booking in %s: %s", cfg.state_file, e)
+
+
+def _prior_booking(cfg: Config, targets: list[date], today: date) -> Optional[str]:
+    """A recorded booking for this exact target set whose date has not passed, or None."""
+    state = read_state(cfg.state_file) or {}
+    lb = state.get("last_booking")
+    if not isinstance(lb, dict):
+        return None
+    try:
+        booked = date.fromisoformat(str(lb.get("date")))
+    except ValueError:
+        return None
+    if booked < today:
+        return None
+    if sorted(lb.get("targets") or []) != sorted(t.isoformat() for t in targets):
+        return None
+    return f"{booked} {lb.get('slot')} ({'dry run' if lb.get('dry_run') else lb.get('outcome')})"
+
+
+def clear_last_booking(state_file: str) -> None:
+    state = read_state(state_file) or {}
+    if state.pop("last_booking", None) is not None:
+        write_state(state_file, state)
 
 
 def _try_book(client: ResyClient, cfg: Config, venue_id: int, target: date, slot: Slot, dry_run: bool, log: logging.Logger, notifier: Notifier, status: Status) -> str:
