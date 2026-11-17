@@ -173,6 +173,12 @@ class ResyClient:
 
             # A real API answer is JSON. Only look for challenge markers in non-JSON bodies: Resy's own
             # JSON legitimately contains strings like "feature_recaptcha" and per-country "captcha" flags.
+            if resp.status_code >= 500:
+                # Resy / its CDN returning 5xx (often an HTML "Bad Gateway" page) is a transient server
+                # fault, not a challenge. Surface it as an ApiError so the caller retries on its next tick.
+                self.log.warning("[%s] %s %s -> %s server error: %s", self.mode, method, path, resp.status_code, _preview(text, 200))
+                raise ApiError(f"{method} {path} -> {resp.status_code} (server error): {_preview(text)}", resp.status_code, text)
+
             lowered = text[:4000].lower()
             looks_html = "text/html" in ctype or lowered.lstrip().startswith("<")
             is_json = "json" in ctype

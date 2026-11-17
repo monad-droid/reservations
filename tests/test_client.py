@@ -71,6 +71,12 @@ class ClientTests(unittest.TestCase):
         self.req.return_value = _resp(200, '{"feature_recaptcha": false, "country_codes": [{"captcha": true}], "results": {"venues": [{"slots": []}]}}')
         self.assertIn("results", self.client.find(1, date(2026, 10, 2), 2))
 
+    def test_5xx_html_is_transient_not_challenge(self):
+        self.req.return_value = _resp(502, "<html><head><title>502 Bad Gateway</title></head></html>", ctype="text/html")
+        with self.assertRaises(ApiError) as cm:
+            self.client.find(1, date(2026, 10, 2), 2)
+        self.assertEqual(cm.exception.status, 502)
+
     def test_non_json(self):
         self.req.return_value = _resp(200, "definitely not json")
         with self.assertRaises(ChallengeError):
