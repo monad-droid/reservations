@@ -1,0 +1,24 @@
+# systemd unit: keeps the bot running (auto mode) and restarts it 30s after any exit or crash.
+# Safe to auto-restart: bookings and /stop are remembered in state.json, so a restart never re-books.
+#   sudo cp resy-sniper.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now resy-sniper
+#   journalctl -u resy-sniper -f
+# Adjust User= and the two paths if you installed somewhere other than /root/resy-sniper.
+
+[Unit]
+Description=Resy release-drop sniper (auto mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/resy-sniper
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/root/resy-sniper/.venv/bin/python -m resy_sniper auto
+Restart=always
+RestartSec=30
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

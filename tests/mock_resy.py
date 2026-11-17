@@ -29,6 +29,7 @@ TAKEN_ON_BOOK = set(os.environ.get("TAKEN_ON_BOOK", "").split(",")) - {""}
 COUNTER = {"find": 0}
 CONFIRMED = [0]  # highest getUpdates offset seen (fake Telegram)
 STARTED = time.monotonic()
+CHALLENGE_ON_FINDS = {int(x) for x in os.environ.get("CHALLENGE_ON_FINDS", "").split(",") if x}
 
 
 def _slots_for(day: str) -> list[dict]:
@@ -107,6 +108,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"scheduled": sched})
         if u.path == "/4/find":
             COUNTER["find"] += 1
+            expect = os.environ.get("AUTH_EXPECT_TOKEN")
+            if expect and self.headers.get("X-Resy-Auth-Token") != expect:
+                return self._send(419, {"message": "token expired"})
+            if COUNTER["find"] in CHALLENGE_ON_FINDS:
+                return self._send(403, b"<html><head><title>Access Denied</title></head><body>Request blocked</body></html>", "text/html")
             day = q.get("day", "")
             off = (date.fromisoformat(day) - date.today()).days
             if day == RELEASE_DAY:

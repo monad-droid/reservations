@@ -66,6 +66,7 @@ class Config:
     notify_only_when_booked: bool
     state_file: str
     log_file: str
+    env_path: Optional[str] = None
     creds: Credentials = field(repr=False, default=None)  # type: ignore[assignment]
 
     @property
@@ -234,6 +235,7 @@ def load_config(path: str, env_path: Optional[str] = None) -> Config:
         state_file=str(_get(raw, "state_file", "state.json")),
         log_file=str(_get(raw, "log_file", "logs/resy-sniper.log")),
     )
+    cfg.env_path = env_path or (".env" if os.path.exists(".env") else None)
     cfg.creds = load_credentials(env_path)
     if cfg.notify_provider == "telegram" and not cfg.creds.telegram_bot_token:
         raise ConfigError("notify.provider is telegram but TELEGRAM_BOT_TOKEN is not set in .env")

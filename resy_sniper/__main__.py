@@ -15,6 +15,7 @@ from .config import ConfigError, load_config, set_target_in_file
 from .discover import run_discover
 from .logsetup import setup_logging
 from .notify import Notifier
+from .resilience import Recovery
 from .slots import parse_find, rank_slots, summarize
 from .snipe import clear_last_booking, run_snipe
 from .state import read_state
@@ -141,7 +142,40 @@ def main(argv=None) -> int:
     notifier = Notifier(cfg.notify_provider, cfg.ntfy_server, cfg.ntfy_topic, log, telegram=telegram, only_when_booked=cfg.notify_only_when_booked)
     client = ResyClient(cfg.creds.api_key, cfg.creds.auth_token, log, mode=args.mode)
 
-    try:
+    recovery = Recovery(cfg.env_path, client, notifier, status, log)
+    resilient = args.mode in ("discover", "snipe", "auto")
+
+    while True:
+        recovery.mark_run_start()
+        try:
+            return _run_mode(args, cfg, client, notifier, log, status, telegram, dry_run)
+        except AuthError as e:
+            if not resilient:
+                log.error("AUTH FAILURE: %s", e)
+                return EXIT_AUTH
+            if not recovery.wait_for_new_token(e):
+                return EXIT_AUTH
+        except ChallengeError as e:
+            if not resilient:
+                log.error("CHALLENGE / UNEXPECTED RESPONSE: %s (raw body is in the log above)", e)
+                return EXIT_CHALLENGE
+            if not recovery.wait_out_challenge(e):
+                return EXIT_CHALLENGE
+        except ResyError as e:
+            log.error("%s", e)
+            return EXIT_ERROR
+        except KeyboardInterrupt:
+            log.warning("interrupted at %s", datetime.now().astimezone().isoformat(timespec="seconds"))
+            return EXIT_ERROR
+        finally:
+            if telegram and (status.shutting_down or not resilient):
+                telegram.stop_listener()
+        if status.stopping and not status.shutting_down:
+            status.reset_stop()
+
+
+def _run_mode(args, cfg, client, notifier, log, status, telegram, dry_run) -> int:
+    if True:
         if args.mode == "venue":
             info = resolve_venue(client, cfg.venue_url_slug, cfg.venue_location, cfg.venue_id, log)
             print(f"venue_id={info.venue_id}")
@@ -209,23 +243,6 @@ def main(argv=None) -> int:
                 status=status,
             )
         return EXIT_CONFIG
-    except AuthError as e:
-        log.error("AUTH FAILURE: %s", e)
-        notifier.send("Resy: auth failure (bot stopped)", str(e), priority="high", essential=True)
-        return EXIT_AUTH
-    except ChallengeError as e:
-        log.error("CHALLENGE / UNEXPECTED RESPONSE: %s (raw body is in the log above)", e)
-        notifier.send("Resy: challenge response (bot stopped)", str(e), priority="high", essential=True)
-        return EXIT_CHALLENGE
-    except ResyError as e:
-        log.error("%s", e)
-        return EXIT_ERROR
-    except KeyboardInterrupt:
-        log.warning("interrupted at %s", datetime.now().astimezone().isoformat(timespec="seconds"))
-        return EXIT_ERROR
-    finally:
-        if telegram:
-            telegram.stop_listener()
 
 
 if __name__ == "__main__":

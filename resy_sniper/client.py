@@ -110,6 +110,10 @@ class ResyClient:
             headers["X-Resy-Universal-Auth"] = auth_token
         self.session.headers.update(headers)
 
+    def set_auth_token(self, token: str) -> None:
+        self.session.headers["X-Resy-Auth-Token"] = token
+        self.session.headers["X-Resy-Universal-Auth"] = token
+
     # ------------------------------------------------------------------ core
 
     def _request(

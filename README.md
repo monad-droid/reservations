@@ -153,9 +153,17 @@ Runs `discover` unless `state.json` is already confirmed, then goes straight int
 configured target. Accepts `--dry-run` and `--target-date` like `snipe`. With Telegram configured the
 process stays alive after the snipe (booked or not) and waits for `/target` or `/stop`.
 
+### Staying up
+
+Server errors (5xx) are retried on the next poll. A blocked/challenge response pauses the bot for
+15, then 30, then 60 minutes before retrying (never bypassed). An expired token pauses the bot and
+messages you; edit `RESY_AUTH_TOKEN` in `.env` and it resumes within a minute, no restart. Run it under
+systemd (below) and it also survives crashes and reboots.
+
 ### Under systemd
 
-`resy-sniper@.service` is a template unit; the instance name is the mode.
+`resy-sniper.service` runs `auto` mode with `Restart=always` (the recommended way; see the file for
+install commands). `resy-sniper@.service` is the older per-mode template with no auto-restart.
 
 ```bash
 sudo cp resy-sniper@.service /etc/systemd/system/

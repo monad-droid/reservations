@@ -133,9 +133,8 @@ def run_discover(cfg: Config, client: ResyClient, notifier: Notifier, log: loggi
         for d in (watch - timedelta(days=1), watch, watch + timedelta(days=1)):
             try:
                 slots = parse_find(client.find(venue.venue_id, d, cfg.party_size))
-            except (AuthError, ChallengeError) as e:
-                notifier.send("Resy discover: stopped", str(e), priority="high")
-                raise
+            except (AuthError, ChallengeError):
+                raise  # handled by the recovery loop in __main__ (pause and retry)
             except (TransportError, RateLimitError, ResyError) as e:
                 log.warning("discover poll %s error (continuing): %s", d, e)
                 continue

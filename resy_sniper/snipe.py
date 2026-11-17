@@ -212,9 +212,8 @@ def run_snipe(
     def fetch(d: date) -> Optional[list[Slot]]:
         try:
             return parse_find(client.find(venue.venue_id, d, cfg.party_size))
-        except (AuthError, ChallengeError) as e:
-            notifier.send("Resy snipe: stopped", str(e), priority="high")
-            raise
+        except (AuthError, ChallengeError):
+            raise  # handled by the recovery loop in __main__ (pause and retry)
         except (TransportError, RateLimitError, ApiError) as e:
             log.warning("%s: request error (continuing): %s", d, e)
             return None
